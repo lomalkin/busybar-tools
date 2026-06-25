@@ -5,28 +5,26 @@ import logging
 from importlib.metadata import version
 
 from busybar_tools import (
-    run_update_from_storage,
-    run_update_from_recovery,
     run_clean,
     run_cli_terminal,
     run_update_local,
     run_wait_for_device,
+    run_auto_install,
     run_install,
+    run_fetch,
+    run_write_recovery,
     run_storage,
 )
 
 from busybar_tools.helpers import (
     setup_logging,
-    print_pretty,
 )
 
 from busybar_tools.config import (
     DEVICE_IP,
     DEVICE_IP_REF,
     DEVICE_PORT,
-    DIR_BSB_RECOVERY,
     U5_TARGET_HW,
-    U5_TARGET_HW_OPTIONS,
     UPDATE_DEFAULT_BRANCH
 )
 
@@ -37,106 +35,202 @@ except Exception:
     __version__ = "unknown"
 
 
+TOP_EPILOG = """\
+examples:
+  busybar auto-install          autodetect & install the latest dev firmware (recommended)
+  busybar auto-install 0.10.2   install a specific tag
+
+Most users want `busybar auto-install`. Other commands are explicit/low-level —
+run `busybar <command> --help` for details.
+"""
+
+# `source` accepts (resolved in this priority order):
+SOURCE_HELP = (
+    "Firmware source (required). Accepted forms (priority order): "
+    "explicit URL (http/https) | local bundle file | local directory | "
+    "update-server tag/branch."
+)
+
+
+def _make_device_opts():
+    """Parent parser: which device to talk to. Shared by device-facing commands."""
+    p = argparse.ArgumentParser(add_help=False)
+    g = p.add_argument_group("device")
+    g.add_argument("-d", "--device", help=f"Device IP (or 'r'/'ref' for the reference device), default: {DEVICE_IP}", type=str, default=DEVICE_IP)
+    g.add_argument("-p", "--port", help=f"Device port, default: {DEVICE_PORT}", type=int, default=DEVICE_PORT)
+    return p
+
+
+def _make_no_wait_opts():
+    """Parent parser: opt out of the device reachability (ping) check.
+
+    Attached to device-facing commands except `wait` (whose whole purpose is to wait).
+    """
+    p = argparse.ArgumentParser(add_help=False)
+    p.add_argument("--no-wait", dest="no_wait", action="store_true", help="Skip the device reachability (ping) check before the operation")
+    return p
+
+
+def _make_firmware_opts():
+    """Parent parser: which firmware to take. Shared by install and fetch."""
+    p = argparse.ArgumentParser(add_help=False)
+    p.add_argument("source", help=SOURCE_HELP, type=str)
+
+    g = p.add_argument_group("firmware selection (update server only)")
+    g.add_argument("-t", "--target", help=f"Target hardware version (default: {U5_TARGET_HW}). Any integer; must exist on the update server.", type=int, default=U5_TARGET_HW)
+
+    # Bundle type: update (default) vs bkp. Canonical build-server artifact names.
+    bundle_type = g.add_mutually_exclusive_group()
+    bundle_type.add_argument("--update", dest="update_bundle_type", action="store_const", const="update", help="Regular update bundle (default)")
+    bundle_type.add_argument("--bkp", dest="update_bundle_type", action="store_const", const="bkp", help="Recovery (bkp) bundle instead of update")
+
+    # Signature: signed (default) vs unsigned.
+    sign = g.add_mutually_exclusive_group()
+    sign.add_argument("--signed", dest="signed", action="store_true", help="Use signed firmware (default)")
+    sign.add_argument("--unsigned", dest="signed", action="store_false", help="Use unsigned firmware")
+
+    p.set_defaults(signed=True, update_bundle_type="update")
+    return p
+
+
 def busybar_main():
     logging.debug(f"cwd: {os.getcwd()}")
 
-    parser = argparse.ArgumentParser(description="Runner")
-    parser.add_argument("--version", action="version", version=f"busybar-tools {__version__}")
-    # parser.add_argument("-v", "--verbose", help="Verbose", action="store_true")   # Always True currently
-    
-    parser.add_argument("-d", "--device", help=f"Device IP, default: {DEVICE_IP}", type=str, default=DEVICE_IP, action="store")
-    parser.add_argument("-p", "--port", help=f"Device Port, default: {DEVICE_PORT}", type=int, default=DEVICE_PORT, action="store")
-    parser.add_argument("-t", "--target", help=f"Target hardware, default: {U5_TARGET_HW}", type=int, default=U5_TARGET_HW, action="store", choices=U5_TARGET_HW_OPTIONS)
+    device_opts = _make_device_opts()
+    no_wait_opts = _make_no_wait_opts()
+    # NOTE: firmware_opts must be a FRESH instance per command. argparse `parents=`
+    # shares the same action objects, and set_defaults() mutates action.default on them —
+    # so a shared firmware_opts would let write-recovery's --bkp default leak into install/fetch.
 
-    parser.parse_known_args()
+    parser = argparse.ArgumentParser(
+        prog="busybar",
+        description="Firmware installer and tooling for BUSY Bar devices.",
+        epilog=TOP_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--version", action="version", version=f"busybar-tools {__version__}")
 
     subparsers = parser.add_subparsers(
         dest="command", help="Commands to run", required=False
     )
 
-    p_install = subparsers.add_parser(
-        "install", help="Install firmware on device"
+    # auto-install -----------------------------------------------------------
+    p_auto = subparsers.add_parser(
+        "auto-install",
+        parents=[device_opts],
+        help="Automatic install for regular users (autodetects target & signing)",
+        description="Autodetect the device's target and signing, fetch the matching update bundle, "
+                    "install it, then report the version change. Source: update-server tag/branch or URL.",
     )
-    p_install.add_argument("source", help="Branch, tag, URL or local file path", type=str, default=UPDATE_DEFAULT_BRANCH, nargs='?')
+    
+    # Transport: storage (default) vs http.
+    transport_group = p_auto.add_argument_group("delivery / transport")
+    transport_mx = transport_group.add_mutually_exclusive_group()
+    transport_mx.add_argument("--via-storage", dest="via_storage", action="store_true", help="Deliver via storage.py protocol (default)", default=True)
+    transport_mx.add_argument("--via-http", dest="via_storage", action="store_false", help="Deliver via HTTP API (direct install only)")
 
-    # Update bundle security: signed vs unsigned
-    sign_group = p_install.add_mutually_exclusive_group()
-    sign_group.add_argument("--signed", dest="signed", action="store_true", help="Use signed firmware (default)")
-    sign_group.add_argument("--unsigned", dest="signed", action="store_false", help="Use unsigned firmware")
+    p_auto.add_argument("--no-wait", dest="no_wait", action="store_true", help="Skip the device reachability (ping) check before the operation")
+    p_auto.add_argument("--no-wait-after", dest="no_wait_after", action="store_true", help="Skip the device reachability (ping) check after the operation (default: wait for device to come back online)")
 
-    # Update bundle type: update vs bkp
-    update_bundle_type_group = p_install.add_mutually_exclusive_group()
-    update_bundle_type_group.add_argument("--update", dest="update_bundle_type", action="store_const", const="update", help="Regular update bundle (default)")
-    update_bundle_type_group.add_argument("--bkp", dest="update_bundle_type", action="store_const", const="bkp", help="Use bkp bundle instead of update (default: update)")
-    p_install.set_defaults(update_bundle_type="update")
+    p_auto.add_argument("source", help=f"Update-server tag/branch or URL (default: {UPDATE_DEFAULT_BRANCH})", type=str, default=UPDATE_DEFAULT_BRANCH, nargs="?")
+    p_auto.set_defaults(func=run_auto_install)
 
-    # Transport: storage vs http
-    transport_group = p_install.add_mutually_exclusive_group()
-    transport_group.add_argument("--via-storage", dest="via_storage", action="store_true", help="Use storage.py transport (default)")
-    transport_group.add_argument("--via-http", dest="via_storage", action="store_false", help="Use HTTP transport")
-
-    p_install.add_argument("--save-as-recovery", dest="save_as_recovery", action="store_true", help="Save update bundle as recovery bundle on device (danger!)")
-
-    p_install.add_argument("--no-invoke-update", dest="invoke_update", action="store_false", help="Do not invoke update after saving the bundle on device (use with --save-as-recovery)")
-
-    p_install.add_argument("--download-only", dest="download_only", action="store_true", help="Only download the firmware bundle, do not save or install it")
-    p_install.add_argument("--unpack-only", dest="unpack_only", action="store_true", help="Only unpack the firmware bundle, do not save or install it (implies --download-only)")
-
-    p_install.add_argument("--recovery-timeout", dest="recovery_timeout", type=int, default=3, help="Time to wait for device to appear in recovery mode (seconds)")
-
-    p_install.set_defaults(func=run_install, signed=True, via_storage=True)
-
-    p_update = subparsers.add_parser(
-        "update", help="Run update from BSB local storage"
-    )
-    p_update.add_argument("source_dir", help="Source directory on the device", type=str, default="", nargs='?')
-    p_update.add_argument("--recovery", dest="from_recovery", action="store_true", help="Run update from recovery partition instead of storage")
-    p_update.set_defaults(func=run_update_local)
-
-    # p_write_recovery = subparsers.add_parser(
-    #     "write-recovery", help="Write firmware bundle to /bkp/recovery on device"
-    # )
-    # p_write_recovery.add_argument("source", help="Branch, tag, URL or local file path", type=str, default=UPDATE_DEFAULT_BRANCH, nargs='?')
-    # sign_group_wr = p_write_recovery.add_mutually_exclusive_group()
-    # sign_group_wr.add_argument("--signed", dest="signed", action="store_true", help="Use signed firmware (default)")
-    # sign_group_wr.add_argument("--unsigned", dest="signed", action="store_false", help="Use unsigned firmware")
-    # p_write_recovery.add_argument("--via-http", dest="via_http", action="store_true", default=False, help="Use HTTP transport instead of storage (default: storage)")
-    # p_write_recovery.add_argument("--update-bundle", dest="update_bundle", action="store_true", default=False, help="Use update artifact type instead of bkp")
-    # p_write_recovery.set_defaults(func=run_dummy, signed=True)
-
+    # cli --------------------------------------------------------------------
     p_run_cli = subparsers.add_parser(
-        "cli", help="CLI terminal session to device"
+        "cli", parents=[device_opts, no_wait_opts],
+        help="CLI terminal session to the device",
+        description="Interactive CLI session, or run commands non-interactively:\n"
+                    "  busybar cli                       interactive session (Ctrl+] to exit)\n"
+                    "  busybar cli -- device_info        run one command and exit\n"
+                    "  busybar cli -i -- device_info     run one command, then stay interactive\n"
+                    "  echo device_info | busybar cli    run commands from stdin (one per line) and exit",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    p_run_cli.add_argument("-i", "--interactive", dest="interactive", action="store_true", help="After running commands from arguments, stay in the interactive session (args form only)")
+    p_run_cli.add_argument("--timeout", dest="timeout", metavar="SECONDS", type=int, default=5, help="Per-command response wait cap for non-interactive runs (default: 5)")
+    p_run_cli.add_argument("cli_args", nargs=argparse.REMAINDER, help="Command to run, after `--` (e.g. -- sysctl debug 1)")
     p_run_cli.set_defaults(func=run_cli_terminal)
 
+    # storage ----------------------------------------------------------------
+    p_storage = subparsers.add_parser(
+        "storage", parents=[device_opts, no_wait_opts], help="Run the embedded storage.py utility on the device"
+    )
+    p_storage.add_argument("storage_args", nargs=argparse.REMAINDER, help="Sub-command and arguments passed to storage.py (e.g. -- list /ext)")
+    p_storage.set_defaults(func=run_storage)
+
+    # install ----------------------------------------------------------------
+    p_install = subparsers.add_parser(
+        "install",
+        parents=[_make_firmware_opts(), device_opts, no_wait_opts],
+        help="Install firmware on the device",
+        description="Resolve a firmware source, deliver it to the device and install it.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    p_install.add_argument("--no-invoke-update", dest="invoke_update", action="store_false", help="Upload the bundle to the staging dir but do not invoke installation (--via-storage only)")
+
+    p_install.set_defaults(func=run_install, via_storage=True)
+
+    # Transport: storage (default) vs http.
+    transport_group = p_install.add_argument_group("delivery / transport")
+    transport_mx = transport_group.add_mutually_exclusive_group()
+    transport_mx.add_argument("--via-storage", dest="via_storage", action="store_true", help="Deliver via storage.py protocol (default)")
+    transport_mx.add_argument("--via-http", dest="via_storage", action="store_false", help="Deliver via HTTP API (direct install only)")
+
+    # fetch ------------------------------------------------------------------
+    p_fetch = subparsers.add_parser(
+        "fetch",
+        parents=[_make_firmware_opts()],
+        help="Download (and optionally unpack) a firmware bundle locally",
+        description="Fetch a firmware bundle without touching the device.",
+    )
+    p_fetch.add_argument("--unpack", dest="unpack", action="store_true", help="Also unpack the downloaded bundle")
+    p_fetch.add_argument("-o", "--output", dest="output", type=str, default=None, help="Destination directory or file path; if omitted, the package cache is used")
+    p_fetch.set_defaults(func=run_fetch)
+
+    # write-recovery ---------------------------------------------------------
+    p_write_recovery = subparsers.add_parser(
+        "write-recovery",
+        parents=[_make_firmware_opts(), device_opts, no_wait_opts],
+        help="Write a firmware bundle into the device recovery partition (without installing)",
+        description="Store a firmware bundle into the recovery partition (/bkp) WITHOUT installing it. "
+                    "Defaults to --bkp. DANGER: a wrong bundle can brick the device.",
+    )
+    p_write_recovery.add_argument("--confirm-timeout", dest="recovery_timeout", metavar="SECONDS", type=int, default=3, help="Countdown (seconds) before overwriting the recovery partition")
+    # The recovery partition expects a bkp-type bundle, so default to --bkp here.
+    p_write_recovery.set_defaults(func=run_write_recovery, update_bundle_type="bkp")
+
+    # install-onboard --------------------------------------------------------
+    p_onboard = subparsers.add_parser(
+        "install-onboard",
+        parents=[device_opts, no_wait_opts],
+        help="Install firmware already staged on the device",
+        description="Invoke installation from a bundle already present on the device storage.",
+    )
+    p_onboard.add_argument("device_path", help="Path on the device to install from, or the literal 'recovery' for the recovery partition (default: the staged update dir)", type=str, default="", nargs="?")
+    p_onboard.set_defaults(func=run_update_local)
+
+    # wait -------------------------------------------------------------------
     p_run_wait = subparsers.add_parser(
-        "wait", help="Just wait for device to be reachable via ping, nothing else"
+        "wait", parents=[device_opts], help="Wait for the device to be reachable via ping, nothing else"
     )
     p_run_wait.set_defaults(func=run_wait_for_device)
 
+    # clean ------------------------------------------------------------------
     p_clean = subparsers.add_parser(
-        "clean", help="Clean package's tmp directory"
+        "clean", help="Clean the package's tmp/cache directory"
     )
     p_clean.set_defaults(func=run_clean)
-
-    p_storage = subparsers.add_parser(
-        "storage", help="Run embedded storage.py utility on the device"
-    )
-    p_storage.add_argument("storage_args", nargs=argparse.REMAINDER, help="Arguments passed to storage.py as-is")
-    p_storage.set_defaults(func=run_storage)
-
-    # p_flash_u5_dfu = subparsers.add_parser(
-    #     "flash-u5-dfu", help="Flash U5 firmware via DFU"
-    # )
-    # p_flash_u5_dfu.add_argument("-d", "--device_ip", help="Device IP", type=str, default=DEVICE_IP)
-    # p_flash_u5_dfu.add_argument("-p", "--device_port", help="Device Port", type=int, default=DEVICE_PORT)
-    # p_flash_u5_dfu.set_defaults(func=run_flash_u5_dfu)
 
 
     args = parser.parse_args()
 
-    if args.device.lower() in ["r", "ref"]:
+    if hasattr(args, "device") and args.device.lower() in ["r", "ref"]:
         args.device = DEVICE_IP_REF
+
+    # --via-http is a direct-install transport: it cannot stage without installing.
+    if args.command == "install" and not args.via_storage and not args.invoke_update:
+        p_install.error("--no-invoke-update requires --via-storage (not available with --via-http)")
 
     args.verbose = True
 
@@ -148,14 +242,14 @@ def busybar_main():
 
 def main():
     setup_logging()
-    
+
     if sys.platform == "win32":
         from busybar_tools.bsb_term import _enable_windows_vt_mode
         _enable_windows_vt_mode()
 
     try:
         ret = busybar_main()
-        print("RET: ", ret)
+        # print("RET: ", ret)
         if ret and ret != 0:
             print("Run: Exiting with error code", ret, file=sys.stderr)
             sys.exit(1)

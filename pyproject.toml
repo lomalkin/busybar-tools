@@ -16,6 +16,9 @@ classifiers = [
 ]
 dependencies = []
 
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
 [project.scripts]
 busybar = "busybar_tools.cli:main"
 
@@ -28,3 +31,7 @@ where = ["."]
 [project.urls]
 Homepage = "https://github.com/lomalkin/busybar-tools"
 Issues = "https://github.com/lomalkin/busybar-tools/issues"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

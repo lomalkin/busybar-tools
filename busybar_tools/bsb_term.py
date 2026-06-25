@@ -16,7 +16,48 @@ else:
 ESCAPE_BYTE = b'\x1d'  # Ctrl+] to exit
 
 
-def _run_session_posix(host: str, port: int, tcp_timeout: int) -> None:
+CLI_PROMPT = b">: "
+
+
+def _prelude_bytes(prelude):
+    """Encode a prelude command string for the device: normalize newlines to CRLF
+    and ensure a trailing CRLF so the last command is executed."""
+    if not prelude:
+        return b""
+    text = prelude.replace("\r\n", "\n")
+    if not text.endswith("\n"):
+        text += "\n"
+    return text.replace("\n", "\r\n").encode("utf-8")
+
+
+def _inject_prelude(sock, prelude, ready_timeout=3.0):
+    """Wait for the device CLI to be ready, then send prelude commands into the session.
+
+    The CLI drops input received before its prompt appears, so we first elicit a prompt
+    (send CR) and read until it shows up (echoing the banner), then inject the commands.
+    """
+    pre = _prelude_bytes(prelude)
+    if not pre:
+        return
+    try:
+        sock.sendall(b"\r")
+        sock.settimeout(ready_timeout)
+        buf = b""
+        while CLI_PROMPT not in buf:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            sys.stdout.buffer.write(chunk)
+            sys.stdout.buffer.flush()
+            buf += chunk
+    except (OSError, socket.timeout):
+        pass
+    finally:
+        sock.settimeout(None)
+    sock.sendall(pre)
+
+
+def _run_session_posix(host: str, port: int, tcp_timeout: int, prelude=None) -> None:
     fd = sys.stdin.fileno()
     orig_attrs = termios.tcgetattr(fd)
 
@@ -31,6 +72,9 @@ def _run_session_posix(host: str, port: int, tcp_timeout: int) -> None:
 
         # Connect TCP
         sock = socket.create_connection((host, port), timeout=tcp_timeout)
+
+        # Inject prelude commands into the same session before going interactive.
+        _inject_prelude(sock, prelude)
 
         # Main loop
         while True:
@@ -92,7 +136,7 @@ def _enable_windows_vt_mode() -> bool:
         return False
 
 
-def _run_session_windows(host: str, port: int, tcp_timeout: int) -> None:
+def _run_session_windows(host: str, port: int, tcp_timeout: int, prelude=None) -> None:
     # Map Windows extended key scan codes to ANSI escape sequences
     _EXT_KEY_MAP = {
         "\x48": b"\x1b[A",   # Up arrow
@@ -107,6 +151,7 @@ def _run_session_windows(host: str, port: int, tcp_timeout: int) -> None:
     }
 
     sock = socket.create_connection((host, port), timeout=tcp_timeout)
+    _inject_prelude(sock, prelude)
     stop_event = threading.Event()
     try:
         def _listener():
@@ -155,11 +200,11 @@ def _run_session_windows(host: str, port: int, tcp_timeout: int) -> None:
         stop_event.set()
         sock.close()
 
-def run_session(host: str, port: int, tcp_timeout: int) -> None:
+def run_session(host: str, port: int, tcp_timeout: int, prelude=None) -> None:
     if platform.system() == "Windows":
-        _run_session_windows(host, port, tcp_timeout)
+        _run_session_windows(host, port, tcp_timeout, prelude=prelude)
     else:
-        _run_session_posix(host, port, tcp_timeout)
+        _run_session_posix(host, port, tcp_timeout, prelude=prelude)
 
 
 # if __name__ == "__main__":

@@ -11,6 +11,7 @@ __pycache__/
 
 busybar_tools.egg-info/
 dist/
+build/
 
 # IDEs
 .idea/

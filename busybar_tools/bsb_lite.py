@@ -77,7 +77,16 @@ class TCP_Stream:
         readable, _, _ = select.select([self.socket], [], [], 0)
         if readable:
             size = 1
-            data = self.socket.recv(size)
+            try:
+                data = self.socket.recv(size)
+            except (ConnectionResetError, ConnectionAbortedError, OSError):
+                # The device closed the connection abruptly (e.g. it rebooted
+                # right after we invoked the update). On Windows this surfaces
+                # as WinError 10054/10053 instead of a graceful EOF/timeout as
+                # on Unix. Treat it as end-of-stream so the caller times out
+                # gracefully with whatever was already buffered.
+                self.is_connected = False
+                return None
             self.received += len(data)
             # print(f"Received: {data}")
             return data
@@ -130,6 +139,10 @@ class BufferedRead:
             data = self.stream.read_timeout(i, timeout=timeout)
             if data:
                 self.buffer.extend(data)
+            elif not self.stream.is_connected:
+                # Connection dropped (e.g. device rebooted). Stop spinning and
+                # return whatever we have buffered so far.
+                break
 
         # Timeout reached, returning whatever is in the buffer
         ret = self.buffer

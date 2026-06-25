@@ -11,7 +11,15 @@ import re, hashlib
 
 import subprocess, time
 
-from busybar_tools.config import PROJECT_NAME, FETCH_TIMEOUT_DEFAULT, UPDATE_SERVER_BASE
+from busybar_tools.config import PROJECT_NAME, FETCH_TIMEOUT_DEFAULT, UPDATE_SERVER_BASE, HTTP_USER_AGENT
+
+
+def _make_request(url):
+    """Build a urllib Request with a non-default User-Agent.
+
+    The update mirror's CDN blocks the default "Python-urllib/x.y" UA with HTTP 403.
+    """
+    return request.Request(url, headers={"User-Agent": HTTP_USER_AGENT})
 
 
 def _ping_command(host, timeout):
@@ -74,9 +82,18 @@ def network_ping_bool(host, timeout=1, verbose=False):
         )
         if verbose:
             print(output)
-        return True
     except subprocess.CalledProcessError:
         return False
+    # Windows `ping` exits 0 even when the reply is an ICMP error such as
+    # "Destination host unreachable" or "Request timed out" (any received packet
+    # counts as success). A genuine echo reply always carries a TTL field, so we
+    # require it and reject the error responses. Without this the reboot-wait
+    # races through while the device is still down and the CLI isn't up yet.
+    if platform.system() == "Windows":
+        low = output.lower()
+        if "unreachable" in low or "timed out" in low or "ttl=" not in low:
+            return False
+    return True
 
 def wait_for_device(
     ip, timeout = None, verbose=False, delay=1, success_ping_as=True, verbose_in_place=True
@@ -125,23 +142,34 @@ def file_download(file_url, file_name, dir, progress=False):
 
     file_path = os.path.join(dir, file_name)
 
+    def _print_progress(downloaded, total_size):
+        if total_size > 0:
+            percent = downloaded * 100 // total_size
+            bar_len = 30
+            filled = bar_len * percent // 100
+            bar = ('=' * filled + '>' + ' ' * (bar_len - filled - 1)) if filled < bar_len else '=' * bar_len
+            dl_mb = downloaded / 1_048_576
+            total_mb = total_size / 1_048_576
+            print(f"\r{file_name}: {dl_mb:.1f}/{total_mb:.1f} MB [{bar}] {percent}%", end="", flush=True)
+        else:
+            print(f"\r{file_name}: {downloaded / 1_048_576:.1f} MB", end="", flush=True)
+
+    # Stream with a custom User-Agent (urlretrieve cannot set headers without a global opener;
+    # the update mirror's CDN 403s the default urllib UA).
+    with request.urlopen(_make_request(file_url)) as response:
+        total_size = int(response.headers.get("Content-Length", 0) or 0)
+        downloaded = 0
+        with open(file_path, "wb") as out:
+            while True:
+                chunk = response.read(65536)
+                if not chunk:
+                    break
+                out.write(chunk)
+                downloaded += len(chunk)
+                if progress:
+                    _print_progress(downloaded, total_size)
     if progress:
-        def _reporthook(block_num, block_size, total_size):
-            downloaded = min(block_num * block_size, total_size) if total_size > 0 else block_num * block_size
-            if total_size > 0:
-                percent = downloaded * 100 // total_size
-                bar_len = 30
-                filled = bar_len * percent // 100
-                bar = ('=' * filled + '>' + ' ' * (bar_len - filled - 1)) if filled < bar_len else '=' * bar_len
-                dl_mb = downloaded / 1_048_576
-                total_mb = total_size / 1_048_576
-                print(f"\r{file_name}: {dl_mb:.1f}/{total_mb:.1f} MB [{bar}] {percent}%", end="", flush=True)
-            else:
-                print(f"\r{file_name}: {block_num * block_size / 1_048_576:.1f} MB", end="", flush=True)
-        request.urlretrieve(file_url, file_path, reporthook=_reporthook)
         print(flush=True)
-    else:
-        request.urlretrieve(file_url, file_path)
 
     if os.path.isfile(file_path):
         return file_path
@@ -175,6 +203,10 @@ def url_to_dir_name(url: str) -> str:
     base = base.replace('https_', '')
     base = base.replace('http_', '')
     base = base.replace('update_flipperzero_one_builds_', '')
+    base = base.replace('update_busy_app_builds_', '')
+    # TODO: calc from actual URL dynamically UPDATE_SERVER_BASE
+    # https://update.busy.app/builds/busybar-firmware/
+    
 
     base = base[:64]    # Crop to 64 chars
 
@@ -184,7 +216,7 @@ def url_to_dir_name(url: str) -> str:
 
 def fetch_url(url, timeout=FETCH_TIMEOUT_DEFAULT):
     try:
-        with request.urlopen(url, timeout=timeout) as response:
+        with request.urlopen(_make_request(url), timeout=timeout) as response:
             if response.status == 200:
                 return response.read().decode()
     except Exception as e:
@@ -253,7 +285,7 @@ def busybar_api_update(device_ip, upd_bundle_tar, verbose=True):
                 percent = int(sent * 100 / total_size) if total_size else 100
                 if percent != last_percent:
                     if verbose:
-                        print(f"\rUpload progress: {percent:3d}%", end="", file=sys.stdout, flush=True)
+                        print(f"\rUpload via HTTP: {percent:3d}%", end="", file=sys.stdout, flush=True)
                     last_percent = percent
 
         if last_percent >= 0:

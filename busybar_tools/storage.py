@@ -7,6 +7,7 @@ import tempfile
 
 from busybar_tools.flipper.app import App
 from busybar_tools.flipper.storage_socket import FlipperStorage, FlipperStorageOperations
+from busybar_tools.config import DEVICE_IP, DEVICE_PORT
 
 
 def WrapStorageOp(func):
@@ -24,7 +25,8 @@ def WrapStorageOp(func):
 
 class Main(App):
     def init(self):
-        self.parser.add_argument("-p", "--port", help="CDC Port", default="auto")
+        self.parser.add_argument("--host", help=f"Device IP, default: {DEVICE_IP}", default=DEVICE_IP)
+        self.parser.add_argument("-p", "--port", help=f"Device TCP port, default: {DEVICE_PORT}", type=int, default=DEVICE_PORT)
 
         self.subparsers = self.parser.add_subparsers(help="sub-command help")
 
@@ -83,9 +85,7 @@ class Main(App):
         self.parser_stress.set_defaults(func=self.stress)
 
     def _get_port(self):
-        if self.args.port != "auto":
-            return (self.args.port, 23)
-        return ("10.0.4.20", 23)
+        return (self.args.host, int(self.args.port))
 
     @WrapStorageOp
     def mkdir(self):
