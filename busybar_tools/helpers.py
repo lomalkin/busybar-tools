@@ -82,9 +82,18 @@ def network_ping_bool(host, timeout=1, verbose=False):
         )
         if verbose:
             print(output)
-        return True
     except subprocess.CalledProcessError:
         return False
+    # Windows `ping` exits 0 even when the reply is an ICMP error such as
+    # "Destination host unreachable" or "Request timed out" (any received packet
+    # counts as success). A genuine echo reply always carries a TTL field, so we
+    # require it and reject the error responses. Without this the reboot-wait
+    # races through while the device is still down and the CLI isn't up yet.
+    if platform.system() == "Windows":
+        low = output.lower()
+        if "unreachable" in low or "timed out" in low or "ttl=" not in low:
+            return False
+    return True
 
 def wait_for_device(
     ip, timeout = None, verbose=False, delay=1, success_ping_as=True, verbose_in_place=True
