@@ -117,23 +117,22 @@ def busybar_main():
     # auto-install -----------------------------------------------------------
     p_auto = subparsers.add_parser(
         "auto-install",
-        parents=[device_opts],
+        parents=[device_opts, no_wait_opts],
         help="Automatic install for regular users (autodetects target & signing)",
         description="Autodetect the device's target and signing, fetch the matching update bundle, "
                     "install it, then report the version change. Source: update-server tag/branch or URL.",
     )
-    
+
     # Transport: storage (default) vs http.
     transport_group = p_auto.add_argument_group("delivery / transport")
     transport_mx = transport_group.add_mutually_exclusive_group()
-    transport_mx.add_argument("--via-storage", dest="via_storage", action="store_true", help="Deliver via storage.py protocol (default)", default=True)
+    transport_mx.add_argument("--via-storage", dest="via_storage", action="store_true", help="Deliver via storage.py protocol (default)")
     transport_mx.add_argument("--via-http", dest="via_storage", action="store_false", help="Deliver via HTTP API (direct install only)")
 
-    p_auto.add_argument("--no-wait", dest="no_wait", action="store_true", help="Skip the device reachability (ping) check before the operation")
-    p_auto.add_argument("--no-wait-after", dest="no_wait_after", action="store_true", help="Skip the device reachability (ping) check after the operation (default: wait for device to come back online)")
+    p_auto.add_argument("--no-wait-after", dest="no_wait_after", action="store_true", help="Skip waiting for the device to come back online after the operation")
 
     p_auto.add_argument("source", help=f"Update-server tag/branch or URL (default: {UPDATE_DEFAULT_BRANCH})", type=str, default=UPDATE_DEFAULT_BRANCH, nargs="?")
-    p_auto.set_defaults(func=run_auto_install)
+    p_auto.set_defaults(func=run_auto_install, via_storage=True)
 
     # cli --------------------------------------------------------------------
     p_run_cli = subparsers.add_parser(
@@ -167,7 +166,7 @@ def busybar_main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    p_install.add_argument("--no-invoke-update", dest="invoke_update", action="store_false", help="Upload the bundle to the staging dir but do not invoke installation (--via-storage only)")
+    p_install.add_argument("--no-install", dest="invoke_update", action="store_false", help="Upload the bundle to the staging dir but do not install it (--via-storage only)")
 
     p_install.set_defaults(func=run_install, via_storage=True)
 
@@ -196,7 +195,7 @@ def busybar_main():
         description="Store a firmware bundle into the recovery partition (/bkp) WITHOUT installing it. "
                     "Defaults to --bkp. DANGER: a wrong bundle can brick the device.",
     )
-    p_write_recovery.add_argument("--confirm-timeout", dest="recovery_timeout", metavar="SECONDS", type=int, default=3, help="Countdown (seconds) before overwriting the recovery partition")
+    p_write_recovery.add_argument("--confirm-timeout", dest="confirm_timeout", metavar="SECONDS", type=int, default=3, help="Countdown (seconds) before overwriting the recovery partition")
     # The recovery partition expects a bkp-type bundle, so default to --bkp here.
     p_write_recovery.set_defaults(func=run_write_recovery, update_bundle_type="bkp")
 
@@ -230,7 +229,7 @@ def busybar_main():
 
     # --via-http is a direct-install transport: it cannot stage without installing.
     if args.command == "install" and not args.via_storage and not args.invoke_update:
-        p_install.error("--no-invoke-update requires --via-storage (not available with --via-http)")
+        p_install.error("--no-install requires --via-storage (not available with --via-http)")
 
     args.verbose = True
 

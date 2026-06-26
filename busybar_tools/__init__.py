@@ -614,7 +614,7 @@ def run_write_recovery(args):
         logging.error("Could not obtain a bundle directory to write to recovery.")
         return 1
 
-    busybar_storage_upload_auto(args, source_dir, save_as_recovery=True, warning_timeout=args.recovery_timeout)
+    busybar_storage_upload_auto(args, source_dir, save_as_recovery=True, warning_timeout=args.confirm_timeout)
     return 0
 
 

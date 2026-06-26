@@ -75,9 +75,9 @@ def test_install_signed_and_unsigned_are_mutually_exclusive(monkeypatch):
         run_cli(monkeypatch, ["install", "--signed", "--unsigned", "dev"])
 
 
-def test_install_via_http_with_no_invoke_update_errors(monkeypatch):
+def test_install_via_http_with_no_install_errors(monkeypatch):
     with pytest.raises(SystemExit) as exc:
-        run_cli(monkeypatch, ["install", "--via-http", "--no-invoke-update", "dev"])
+        run_cli(monkeypatch, ["install", "--via-http", "--no-install", "dev"])
     assert exc.value.code == 2
 
 

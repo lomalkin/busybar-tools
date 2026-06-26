@@ -38,8 +38,6 @@ After the first `pipx ensurepath` you may need to open a new terminal.
 
 **Upgrade** (any OS): `pipx upgrade busybar-tools`
 
-**Development**: `pip install -e .` from the project root (use a virtual environment).
-
 
 ## Usage
 
@@ -105,7 +103,7 @@ Sub-commands: `mkdir`, `format_ext`, `remove`, `read`, `size`, `receive`, `send`
 ### `busybar install`
 
     busybar install [--update | --bkp] [--signed | --unsigned] [--via-storage | --via-http]
-                    [--no-invoke-update] [-t TARGET] [-d DEVICE] [-p PORT] source
+                    [--no-install] [-t TARGET] [-d DEVICE] [-p PORT] source
 
 For bracketed pairs the first option is the default. `source` (required) is resolved in priority order:
 URL (`http`/`https`) → local bundle file → local directory → update-server tag/branch.
@@ -114,7 +112,7 @@ URL (`http`/`https`) → local bundle file → local directory → update-server
 - `--update` | `--bkp` — bundle type (regular firmware vs recovery bundle).
 - `--signed` | `--unsigned` — bundle signature (production devices require signed).
 - `--via-storage` | `--via-http` — transport; `--via-http` is direct-install only.
-- `--no-invoke-update` — upload to the staging dir without installing (`--via-storage` only).
+- `--no-install` — upload to the staging dir without installing (`--via-storage` only).
 
 Examples:
 - `busybar install dev` — install signed firmware from the `dev` branch.
@@ -129,7 +127,8 @@ and firmware-selection options as `install`.
 
     busybar fetch [--update | --bkp] [--signed | --unsigned] [-t TARGET] [--unpack] [-o OUTPUT] source
 
-- `--unpack` — also unpack the downloaded bundle.
+- `--update` | `--bkp` is a type of the bundle to fetch.
+- `--unpack` — unpack the downloaded bundle to a directory
 - `-o`, `--output DEST` — destination dir or file path (default: package cache). The final path is printed.
 
 Examples:
@@ -163,6 +162,28 @@ Install firmware already staged on the device (no download/upload).
 - `busybar wait` — wait until the device is reachable (useful for scripting).
 - `busybar clean` — clean the package's local tmp/cache directory.
 
+## Development and Testing
+
+Editable install: `pip install -e .` from the project root (use a virtual environment).
+
+Run tests (`pip install -e ".[test]"`). Offline tests always run first, then live ones:
+- `pytest` — the offline test suite.
+- `pytest --run-hardware [-vv] [--device IP] [--port N]` — also runs safe live-device tests
+  (cli/device_info, storage round-trip in `/ext/tmp`, fetch, install stage-only). Skipped by default;
+  self-skip if the device is unreachable. Device can also be set via `BUSYBAR_TEST_DEVICE` /
+  `BUSYBAR_TEST_PORT`.
+- `pytest --run-flash [-vv] [--device IP]` — also runs destructive tests that **really reflash/reboot** the
+  device (install over storage and http, auto-install) and overwrite the recovery partition with a
+  pinned version (write-recovery). The run **ends with a factory reset** that rolls out that pinned
+  recovery image, so the device is left on the pinned version. Stand-only; these take minutes.
+  Tunables (pinned recovery version, flash source) are at the top of `tests/hardware/conftest.py`.
+
+To run a subset (e.g. while iterating, to avoid the full flash run) use the standard pytest selectors:
+- by name: `pytest --run-flash -k "write_recovery or factory_reset"`
+- by marker: `pytest --run-flash -m "flash and not flash_final"`, or `-m flash_final` for just the reset
+- by file/node: `pytest --run-flash tests/hardware/test_install_live.py::test_install_flash`
+- add `-s` to see live device output (handy during flashing).
+
 ---
 
 # Changelog
@@ -172,7 +193,8 @@ Install firmware already staged on the device (no download/upload).
 - Factory reset
 - ...create an [issue](https://github.com/lomalkin/busybar-tools/issues) for any feature requests or bug reports!
 
-## Unreleased
+
+## 0.8.0
 - New `busybar auto-install` command — the recommended path for regular users: it reads the device
   info, autodetects the hardware target and whether signed firmware is required, fetches the matching
   update bundle, installs it, and reports the version change. Accepts only an update-server tag/branch/URL.
@@ -195,7 +217,7 @@ Install firmware already staged on the device (no download/upload).
     - Writing a bundle into the recovery partition is now a dedicated `busybar write-recovery` command
       (defaults to `--bkp`); the `install --save-as-recovery` / `--install` / `--confirm-timeout` options are removed.
     - `--recovery-timeout` is renamed to `--confirm-timeout`.
-    - Invalid combinations now fail with a clear error (e.g. `--via-http` with `--no-invoke-update`).
+    - Invalid combinations now fail with a clear error (e.g. `--via-http` with `--no-install`).
     - `busybar storage` now selects the device consistently via `-d`/`-p` (pass storage sub-commands after `--`).
     - Added `--no-wait` to skip the device reachability (ping) check on device-facing commands (except `wait`).
     - `write-recovery` logs a warning when used with `--update` instead of `--bkp` (the intended bundle type for recovery).

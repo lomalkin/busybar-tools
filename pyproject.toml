@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "busybar-tools"
-version = "0.7.0"
+version = "0.8.0"
 description = "CLI tools to manage BUSY Bar"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -35,3 +35,8 @@ Issues = "https://github.com/lomalkin/busybar-tools/issues"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+  "hardware: requires a live connected device (run with --run-hardware)",
+  "flash: reflashes/reboots or overwrites the recovery partition (run with --run-flash)",
+  "flash_final: destructive finalizer that runs last (factory reset); run with --run-flash",
+]
