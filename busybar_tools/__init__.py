@@ -465,13 +465,13 @@ def device_info_target(info):
 def device_info_signed(info):
     """Whether the device runs signed firmware (secure boot enabled on both cores).
 
-    sl_nwp_secureboot and sl_m4_secureboot must agree; an inconsistent state is an error.
+    sl_nwp_signature and sl_m4_signature must agree; an inconsistent state is an error.
     """
-    nwp = _device_info_bool(info, "sl_nwp_secureboot")
-    m4 = _device_info_bool(info, "sl_m4_secureboot")
+    nwp = _device_info_bool(info, "sl_nwp_signature")
+    m4 = _device_info_bool(info, "sl_m4_signature")
     if nwp != m4:
         raise RuntimeError(
-            f"Inconsistent secure boot state (sl_nwp_secureboot={nwp}, sl_m4_secureboot={m4}); "
+            f"Inconsistent secure boot state (sl_nwp_signature={nwp}, sl_m4_signature={m4}); "
             "cannot decide signed/unsigned automatically."
         )
     return nwp
@@ -483,7 +483,7 @@ _VERSION_FIELDS = (
 )
 
 # Fields needed to autodetect target & signing (also gate "device fully booted").
-_DETECT_FIELDS = ("u5_firmware_target", "sl_nwp_secureboot", "sl_m4_secureboot")
+_DETECT_FIELDS = ("u5_firmware_target", "sl_nwp_signature", "sl_m4_signature")
 
 
 def device_version_fingerprint(info):

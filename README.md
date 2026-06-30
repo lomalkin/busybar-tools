@@ -189,8 +189,8 @@ To run a subset (e.g. while iterating, to avoid the full flash run) use the stan
 # Changelog
 
 ## Upcoming features plan
-- Easy recovery via DFU from any possible broken state
-- Factory reset
+- Easy recovery of Busybar via DFU from any possible broken state
+- Factory reset?
 - ...create an [issue](https://github.com/lomalkin/busybar-tools/issues) for any feature requests or bug reports!
 
 

@@ -12,8 +12,8 @@ BASE_INFO = {
     "sl_firmware_commit": "74c397e6",
     "sl_firmware_branch": "0.8.1",
     "sl_firmware_builddate": "2026-04-17",
-    "sl_nwp_secureboot": "true",
-    "sl_m4_secureboot": "true",
+    "sl_nwp_signature": "true",
+    "sl_m4_signature": "true",
 }
 
 
@@ -41,26 +41,26 @@ def test_signed_when_both_secureboot_true():
 
 
 def test_unsigned_when_both_secureboot_false():
-    info = dict(BASE_INFO, sl_nwp_secureboot="false", sl_m4_secureboot="false")
+    info = dict(BASE_INFO, sl_nwp_signature="false", sl_m4_signature="false")
     assert bt.device_info_signed(info) is False
 
 
 @pytest.mark.parametrize("nwp,m4", [("true", "false"), ("false", "true")])
 def test_signed_inconsistent_secureboot_raises(nwp, m4):
-    info = dict(BASE_INFO, sl_nwp_secureboot=nwp, sl_m4_secureboot=m4)
+    info = dict(BASE_INFO, sl_nwp_signature=nwp, sl_m4_signature=m4)
     with pytest.raises(RuntimeError):
         bt.device_info_signed(info)
 
 
 def test_signed_missing_field_raises():
     info = dict(BASE_INFO)
-    del info["sl_m4_secureboot"]
+    del info["sl_m4_signature"]
     with pytest.raises(RuntimeError):
         bt.device_info_signed(info)
 
 
 def test_secureboot_value_is_case_insensitive():
-    info = dict(BASE_INFO, sl_nwp_secureboot="True", sl_m4_secureboot="TRUE")
+    info = dict(BASE_INFO, sl_nwp_signature="True", sl_m4_signature="TRUE")
     assert bt.device_info_signed(info) is True
 
 
