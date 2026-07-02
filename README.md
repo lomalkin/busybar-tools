@@ -162,6 +162,34 @@ Install firmware already staged on the device (no download/upload).
 - `busybar wait` — wait until the device is reachable (useful for scripting).
 - `busybar clean` — clean the package's local tmp/cache directory.
 
+## Shell completion (optional)
+
+`busybar` can tab-complete commands and options in **bash** and **zsh** via
+[argcomplete](https://pypi.org/project/argcomplete/). It is opt-in: you install the extra once and
+add one line to your shell startup file.
+
+**1. Install with the `completion` extra:**
+
+    pipx install "busybar-tools[completion]"          # fresh install
+    pipx inject busybar-tools argcomplete              # if already installed via pipx
+
+(For a plain pip environment: `pip install "busybar-tools[completion]"`.)
+
+**2. Enable completion in your shell** — add the matching line to your shell startup file so it
+runs in every new session:
+
+    # bash — add to ~/.bashrc
+    eval "$(register-python-argcomplete busybar)"
+
+    # zsh — add to ~/.zshrc
+    autoload -Uz bashcompinit && bashcompinit
+    eval "$(register-python-argcomplete busybar)"
+
+Open a new terminal (or `source` the file), then type `busybar <TAB>`.
+
+> If you use several argcomplete-enabled tools, you can instead enable completion globally once with
+> `activate-global-python-argcomplete` and skip the per-command `eval` line.
+
 ## Development and Testing
 
 Editable install: `pip install -e .` from the project root (use a virtual environment).
@@ -193,6 +221,11 @@ To run a subset (e.g. while iterating, to avoid the full flash run) use the stan
 - Factory reset?
 - ...create an [issue](https://github.com/lomalkin/busybar-tools/issues) for any feature requests or bug reports!
 
+
+## Upcoming
+- Optional shell tab-completion for bash/zsh via [argcomplete](https://pypi.org/project/argcomplete/).
+  Install the extra (`busybar-tools[completion]`) and register it in your shell — see
+  [Shell completion](#shell-completion-optional).
 
 ## 0.8.0
 - New `busybar auto-install` command — the recommended path for regular users: it reads the device
