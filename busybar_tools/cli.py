@@ -1,3 +1,4 @@
+# PYTHONARGCOMPLETE_OK
 import os
 import sys
 import argparse
@@ -221,6 +222,12 @@ def busybar_main():
     )
     p_clean.set_defaults(func=run_clean)
 
+
+    try:  # ponytail: optional — completion works only if argcomplete is installed
+        import argcomplete
+        argcomplete.autocomplete(parser)
+    except ImportError:
+        pass
 
     args = parser.parse_args()
 
