@@ -46,6 +46,7 @@ After the first `pipx ensurepath` you may need to open a new terminal.
     commands:
       auto-install     Autodetect target & signing, then install — recommended for most users
       cli              CLI terminal session, or run commands non-interactively
+      recover          Recover STM32U5 firmware via USB DFU
       storage          Run the embedded storage.py utility on the device
       install          Install firmware from an explicit source (low-level)
       fetch            Download (and optionally unpack) a firmware bundle locally
@@ -60,9 +61,10 @@ After the first `pipx ensurepath` you may need to open a new terminal.
 Options go **after** the command (e.g. `busybar install -t 21 0.10.2`). Run `busybar <command> --help`
 for the full list.
 
-Device commands (`auto-install`, `cli`, `storage`, `install`, `write-recovery`, `install-onboard`,
-`wait`) accept `-d/--device` (IP; `r`/`ref` = reference device) and `-p/--port` (default 23). All of
-them except `wait` also accept `--no-wait` to skip the pre-operation reachability check.
+Device commands (`auto-install`, `cli`, `recover`, `storage`, `install`, `write-recovery`, `install-onboard`,
+`wait`) accept `-d/--device` (IP; `r`/`ref` = reference device) and `-p/--port` (default 23). Device
+commands except `recover` and `wait` also accept `--no-wait` to skip the pre-operation reachability
+check; `recover` has its own `--no-wait-after` option.
 
 ### `busybar auto-install`
 
@@ -72,13 +74,13 @@ bundle, installs it, then waits for the reboot and reports the version change.
     busybar auto-install [--via-storage | --via-http] [--no-wait] [--no-wait-after]
                          [-d DEVICE] [-p PORT] [source]
 
-- `source` — update-server tag/branch or URL (default: `dev`). Local files/dirs are not accepted here
-  (the bundle is chosen automatically for the detected target/signing — use `install` for those).
-- `--no-wait-after` — return right after install instead of waiting for the reboot / version check.
+- `source` - update-server tag/branch or URL (default: `release`). Local files/dirs are not accepted here
+  (the bundle is chosen automatically for the detected target/signing - use `install` for those).
+- `--no-wait-after` - return right after install instead of waiting for the reboot / version check.
 
 Examples:
-- `busybar auto-install` — install the latest `dev` firmware for this device.
-- `busybar auto-install 0.10.2` — install a specific tag.
+- `busybar auto-install` - install the latest `release` firmware for this device.
+- `busybar auto-install 0.10.2` - install a specific tag.
 
 ### `busybar cli`
 
@@ -90,6 +92,32 @@ Interactive session, or run commands non-interactively.
 - `busybar cli -- device_info` — run one command and exit.
 - `busybar cli -i -- device_info` — run the command, then stay in the session (same connection).
 - `echo device_info | busybar cli` — run commands from stdin (one per line) and exit.
+
+### `busybar recover`
+
+Recover STM32U5 firmware over USB DFU. By default the command uses a Python USB DfuSe backend, similar
+to the web recovery utility: it parses the `.dfu`, writes STM32 internal flash directly through USB, and
+sends the DfuSe leave request without invoking `dfu-util`. The package depends on PyUSB plus a bundled
+libusb provider where available. A `dfu-util` backend is still available for comparison/fallback; when
+that backend is selected, the command tries to install `dfu-util` automatically if it is not already
+available: Scoop/WinGet/Chocolatey on Windows, Homebrew/MacPorts on macOS, and common package managers
+on Linux.
+
+    busybar recover [-t auto|TARGET] [--file local.dfu] [--manual-dfu]
+                    [--backend pyusb|dfu-util|auto]
+                    [--dfu-tool PATH] [--no-install-dfu-tool]
+                    [--wait-timeout SECONDS] [--no-wait-after] [source]
+
+- `source` — update-server tag/branch or URL (default: `release`).
+- `--file` — use a local `.dfu` file instead of downloading one.
+- `--backend` — choose `pyusb` (default), `dfu-util`, or `auto`.
+- `--manual-dfu` — skip the CLI command that asks the device to boot into DFU mode.
+- `--no-install-dfu-tool` — fail if `dfu-util` is missing instead of trying to install it when using the `dfu-util` backend.
+- `--wait-timeout SECONDS` — limit how long to wait for the device to come back after flashing.
+
+If automatic DFU entry fails, the command asks you to put BUSY Bar into DFU mode manually.
+After flashing, it sends an explicit DfuSe leave command. Some devices may still need a manual reboot:
+hold Start and Back for about 3 seconds, then release and wait for the device to boot.
 
 ### `busybar storage`
 
@@ -164,31 +192,18 @@ Install firmware already staged on the device (no download/upload).
 
 ## Shell completion (optional)
 
-`busybar` can tab-complete commands and options in **bash** and **zsh** via
-[argcomplete](https://pypi.org/project/argcomplete/). It is opt-in: you install the extra once and
-add one line to your shell startup file.
+`busybar` can tab-complete commands and options through
+[Typer](https://typer.tiangolo.com/). It is built into the CLI; install completion once for your shell.
 
-**1. Install with the `completion` extra:**
+**Install completion:**
 
-    pipx install "busybar-tools[completion]"          # fresh install
-    pipx inject busybar-tools argcomplete              # if already installed via pipx
+    busybar --install-completion bash
+    busybar --install-completion zsh
+    busybar --install-completion fish
+    busybar --install-completion powershell
 
-(For a plain pip environment: `pip install "busybar-tools[completion]"`.)
-
-**2. Enable completion in your shell** — add the matching line to your shell startup file so it
-runs in every new session:
-
-    # bash — add to ~/.bashrc
-    eval "$(register-python-argcomplete busybar)"
-
-    # zsh — add to ~/.zshrc
-    autoload -Uz bashcompinit && bashcompinit
-    eval "$(register-python-argcomplete busybar)"
-
-Open a new terminal (or `source` the file), then type `busybar <TAB>`.
-
-> If you use several argcomplete-enabled tools, you can instead enable completion globally once with
-> `activate-global-python-argcomplete` and skip the per-command `eval` line.
+Open a new terminal, then type `busybar <TAB>`. Use `busybar --show-completion SHELL` to inspect
+the generated completion script without installing it.
 
 ## Development and Testing
 
@@ -223,8 +238,7 @@ To run a subset (e.g. while iterating, to avoid the full flash run) use the stan
 
 
 ## Upcoming
-- Optional shell tab-completion for bash/zsh via [argcomplete](https://pypi.org/project/argcomplete/).
-  Install the extra (`busybar-tools[completion]`) and register it in your shell — see
+- Optional shell tab-completion through Typer's built-in completion support. Install it for your shell — see
   [Shell completion](#shell-completion-optional).
 
 ## 0.8.0
@@ -233,8 +247,8 @@ To run a subset (e.g. while iterating, to avoid the full flash run) use the stan
   update bundle, installs it, and reports the version change. Accepts only an update-server tag/branch/URL.
   Supports `--via-storage`/`--via-http`, `--no-wait` (skip the pre-check) and `--no-wait-after`
   (skip waiting for the reboot afterwards).
-- `install` / `fetch` / `write-recovery` now **require an explicit `source`** (the `dev` default was
-  removed; it now lives in `auto-install`).
+- `install` / `fetch` / `write-recovery` now **require an explicit `source`** (the old default was
+  removed; the user-friendly default lives in `auto-install`).
 - `-t/--target` is no longer restricted to a fixed list — it accepts any integer target supported by
   the update server (default still `22`).
 - `busybar cli` can now run commands non-interactively: from arguments (`cli -- device_info`) or from

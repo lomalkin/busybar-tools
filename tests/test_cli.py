@@ -1,4 +1,4 @@
-"""Argparse-level tests: only argument parsing/validation (no dispatch to device)."""
+"""CLI parsing/validation tests with command dispatch mocked out."""
 import sys
 
 import pytest
@@ -14,15 +14,43 @@ def run_cli(monkeypatch, argv):
 
 @pytest.mark.parametrize("cmd", ["install", "fetch", "write-recovery"])
 def test_source_is_required(monkeypatch, cmd):
-    with pytest.raises(SystemExit) as exc:
-        run_cli(monkeypatch, [cmd])
-    assert exc.value.code == 2
+    assert run_cli(monkeypatch, [cmd]) == 2
 
 
 def test_auto_install_rejects_firmware_flags(monkeypatch):
     # autodetect-only: no -t override allowed
-    with pytest.raises(SystemExit):
-        run_cli(monkeypatch, ["auto-install", "-t", "22", "dev"])
+    assert run_cli(monkeypatch, ["auto-install", "-t", "22", "dev"]) == 2
+
+
+def test_auto_install_defaults_to_release(monkeypatch):
+    captured = {}
+
+    def fake_auto_install(args):
+        captured["source"] = args.source
+        return 0
+
+    monkeypatch.setattr(cli, "run_auto_install", fake_auto_install)
+    ret = run_cli(monkeypatch, ["auto-install"])
+    assert ret == 0
+    assert captured["source"] == "release"
+
+
+@pytest.mark.parametrize("argv,expected", [
+    (["auto-install"], True),
+    (["auto-install", "--via-storage"], True),
+    (["auto-install", "--via-http"], False),
+])
+def test_auto_install_transport_options(monkeypatch, argv, expected):
+    captured = {}
+
+    def fake_auto_install(args):
+        captured["via_storage"] = args.via_storage
+        return 0
+
+    monkeypatch.setattr(cli, "run_auto_install", fake_auto_install)
+    ret = run_cli(monkeypatch, argv)
+    assert ret == 0
+    assert captured["via_storage"] is expected
 
 
 def test_install_accepts_arbitrary_target(monkeypatch):
@@ -60,8 +88,7 @@ def _capture_bundle(monkeypatch, argv):
     ("write-recovery", "bkp"),
 ])
 def test_default_bundle_type_per_command(monkeypatch, cmd, expected):
-    # Regression: a shared firmware_opts parent let write-recovery's --bkp default
-    # leak into install/fetch via mutated argparse action defaults.
+    # Regression: write-recovery's --bkp default must not leak into install/fetch.
     assert _capture_bundle(monkeypatch, [cmd, "dev"]) == expected
 
 
@@ -71,25 +98,61 @@ def test_bundle_type_overrides(monkeypatch):
 
 
 def test_install_signed_and_unsigned_are_mutually_exclusive(monkeypatch):
-    with pytest.raises(SystemExit):
-        run_cli(monkeypatch, ["install", "--signed", "--unsigned", "dev"])
+    assert run_cli(monkeypatch, ["install", "--signed", "--unsigned", "dev"]) == 2
 
 
 def test_install_via_http_with_no_install_errors(monkeypatch):
-    with pytest.raises(SystemExit) as exc:
-        run_cli(monkeypatch, ["install", "--via-http", "--no-install", "dev"])
-    assert exc.value.code == 2
+    assert run_cli(monkeypatch, ["install", "--via-http", "--no-install", "dev"]) == 2
+
+
+def test_recover_defaults(monkeypatch):
+    captured = {}
+
+    def fake_recover(args):
+        captured["source"] = args.source
+        captured["target"] = args.target
+        captured["backend"] = args.backend
+        captured["manual_dfu"] = args.manual_dfu
+        captured["no_install_dfu_tool"] = args.no_install_dfu_tool
+        captured["wait_timeout"] = args.wait_timeout
+        return 0
+
+    monkeypatch.setattr(cli, "run_recover", fake_recover)
+    ret = run_cli(monkeypatch, ["recover"])
+    assert ret == 0
+    assert captured == {
+        "source": "release",
+        "target": "auto",
+        "backend": "pyusb",
+        "manual_dfu": False,
+        "no_install_dfu_tool": False,
+        "wait_timeout": 120,
+    }
 
 
 def test_help_exits_zero_and_mentions_auto_install(monkeypatch, capsys):
-    with pytest.raises(SystemExit) as exc:
-        run_cli(monkeypatch, ["--help"])
-    assert exc.value.code == 0
+    assert run_cli(monkeypatch, ["--help"]) == 0
     assert "auto-install" in capsys.readouterr().out
 
 
+def test_version_exits_zero_without_command(monkeypatch, capsys):
+    assert run_cli(monkeypatch, ["--version"]) == 0
+    assert "busybar-tools" in capsys.readouterr().out
+
+
 def test_command_registration_order(monkeypatch, capsys):
-    with pytest.raises(SystemExit):
-        run_cli(monkeypatch, ["--help"])
+    assert run_cli(monkeypatch, ["--help"]) == 0
     out = capsys.readouterr().out
-    assert "{auto-install,cli,storage,install,fetch,write-recovery,install-onboard,wait,clean}" in out
+    for command in [
+        "auto-install",
+        "cli",
+        "recover",
+        "storage",
+        "install",
+        "fetch",
+        "write-recovery",
+        "install-onboard",
+        "wait",
+        "clean",
+    ]:
+        assert command in out

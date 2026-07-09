@@ -14,11 +14,10 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Operating System :: OS Independent"
 ]
-dependencies = []
+dependencies = ["pyusb>=1.2", "libusb-package>=1.0", "typer>=0.12"]
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
-completion = ["argcomplete>=3"]
 
 [project.scripts]
 busybar = "busybar_tools.cli:main"
@@ -28,6 +27,7 @@ package-dir = {"" = "."}
 
 [tool.setuptools.packages.find]
 where = ["."]
+exclude = ["build*", "dist*", "tests*"]
 
 [project.urls]
 Homepage = "https://github.com/lomalkin/busybar-tools"

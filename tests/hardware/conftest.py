@@ -10,6 +10,7 @@ import pytest
 
 import busybar_tools as bt
 from busybar_tools.bsb_lite import BSB_Lite
+from busybar_tools.device import _DETECT_FIELDS, _VERSION_FIELDS
 from busybar_tools.helpers import network_ping_bool, wait_for_device
 
 # --- test config (edit here) ------------------------------------------------
@@ -17,12 +18,12 @@ from busybar_tools.helpers import network_ping_bool, wait_for_device
 WRITE_RECOVERY_VERSION = "0.10.2"
 # Source for install / auto-install flash tests. None => default branch
 FLASH_SOURCE = None
-# Generous bounds for reflash/reboot (minutes) — we just wait, no short timeouts.
+# Generous bounds for reflash/reboot (minutes) - we just wait, no short timeouts.
 REBOOT_OFFLINE_TIMEOUT = 180   # seconds to allow the device to drop offline
 POST_REBOOT_READ_RETRIES = 30  # device_read_info attempts after it comes back
 # ----------------------------------------------------------------------------
 
-_READY_KEYS = bt._VERSION_FIELDS + bt._DETECT_FIELDS
+_READY_KEYS = _VERSION_FIELDS + _DETECT_FIELDS
 
 
 @pytest.fixture(scope="session")

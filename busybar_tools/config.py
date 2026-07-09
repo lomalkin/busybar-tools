@@ -11,6 +11,7 @@ except Exception:
 # UPDATE_SERVER_BASE = "https://update.flipperzero.one/builds/busybar-firmware/"
 UPDATE_SERVER_BASE = "https://update.busy.app/builds/busybar-firmware/"
 UPDATE_DEFAULT_BRANCH = "dev"
+UPDATE_DEFAULT_SOURCE = "release"
 
 FETCH_TIMEOUT_DEFAULT = 60  # seconds
 TCP_TIMEOUT_DEFAULT = 5  # seconds
