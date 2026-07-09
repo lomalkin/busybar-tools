@@ -12,6 +12,7 @@ except Exception:
 UPDATE_SERVER_BASE = "https://update.busy.app/builds/busybar-firmware/"
 UPDATE_DEFAULT_BRANCH = "dev"
 UPDATE_DEFAULT_SOURCE = "release"
+UPDATE_DIRECTORY_URL = "https://update.busy.app/busybar-firmware/directory.json"
 
 FETCH_TIMEOUT_DEFAULT = 60  # seconds
 TCP_TIMEOUT_DEFAULT = 5  # seconds

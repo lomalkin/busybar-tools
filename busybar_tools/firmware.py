@@ -1,7 +1,9 @@
+import json
 import logging
 import os
 import shutil
 
+from busybar_tools.config import UPDATE_DIRECTORY_URL
 from busybar_tools.helpers import (
     busybar_update_get_index_file_name,
     busybar_update_parse_index,
@@ -15,6 +17,13 @@ from busybar_tools.helpers import (
 
 
 UNPACKED_DIR_NAME = "unpacked"
+CHANNEL_ALIASES = {
+    "dev": "development",
+    "development": "development",
+    "rc": "release-candidate",
+    "release-candidate": "release-candidate",
+    "release": "release",
+}
 
 
 def busybar_get_index_by_url(base_url, target, work_dir):
@@ -46,7 +55,7 @@ def busybar_get_index_by_url(base_url, target, work_dir):
             logging.info(f"Loaded index content from cache {index_path}")
         except Exception as e:
             logging.error(f"Error loading index content from cache: {e}")
-            return 1
+            raise RuntimeError(f"Could not load update index from network or cache: {index_url}") from e
 
     return busybar_update_parse_index(index_data, base_url)
 
@@ -80,6 +89,78 @@ def busybar_download_file_by_filetype(source_url, file_type, work_dir, index_par
     return file_path
 
 
+def _download_file_from_info(file_info, work_dir):
+    url = file_info["url"]
+    name = os.path.basename(url.split("?", 1)[0])
+    if not name:
+        raise RuntimeError(f"Could not determine file name from update URL: {url}")
+
+    file_path = os.path.join(work_dir, name)
+    if not os.path.exists(file_path):
+        file_path = file_download(url, name, work_dir, progress=True)
+
+    expected_hash = file_info.get("sha256")
+    if expected_hash:
+        actual_hash = file_sha256(file_path)
+        if actual_hash != expected_hash:
+            logging.warning(f"Hash mismatch for {name}; downloading again")
+            file_path = file_download(url, name, work_dir, progress=True)
+            actual_hash = file_sha256(file_path)
+        if actual_hash != expected_hash:
+            raise RuntimeError(f"Hash check failed for {name}: expected {expected_hash}, got {actual_hash}")
+    return file_path
+
+
+def _download_directory_json_match(source, target, file_type, work_dir):
+    if source.startswith("http://") or source.startswith("https://"):
+        if not source.endswith(".json"):
+            raise RuntimeError(f"Source URL is not a firmware directory.json: {source}")
+        directory_url = source
+        channel_id = "release"
+    else:
+        channel_id = CHANNEL_ALIASES.get(source)
+        if not channel_id:
+            raise RuntimeError(f"Source '{source}' is not a known firmware channel")
+        directory_url = UPDATE_DIRECTORY_URL
+
+    data = fetch_url(directory_url, timeout=10)
+    if not data:
+        raise RuntimeError(f"Failed to fetch firmware directory {directory_url}")
+
+    directory = json.loads(data)
+    channel = next((c for c in directory.get("channels", []) if c.get("id") == channel_id), None)
+    if not channel:
+        raise RuntimeError(f"Firmware channel '{channel_id}' not found in {directory_url}")
+
+    versions = sorted(channel.get("versions", []), key=lambda v: v.get("timestamp", 0), reverse=True)
+    target_name = f"f{int(target)}"
+    for version in versions:
+        for file_info in version.get("files", []):
+            if file_info.get("type") != file_type:
+                continue
+            if str(file_info.get("target", "")).lower() != target_name:
+                continue
+            logging.info(
+                f"Resolved {file_type} for {target_name} from {channel_id} "
+                f"channel version {version.get('version', '?')}"
+            )
+            return _download_file_from_info(file_info, work_dir)
+
+    raise RuntimeError(f"No {file_type} file found for {target_name} in {channel_id}")
+
+
+def _download_source_file(source, source_url, target, file_type, work_dir):
+    if source in CHANNEL_ALIASES:
+        return _download_directory_json_match(source, target, f"{file_type}_tgz", work_dir)
+
+    try:
+        index_parsed = busybar_get_index_by_url(source_url, target, work_dir)
+        return busybar_download_file_by_filetype(source_url, f"{file_type}_tgz", work_dir, index_parsed)
+    except Exception as index_error:
+        logging.warning(f"Could not resolve {file_type}_tgz from update index: {index_error}")
+        return _download_directory_json_match(source, target, f"{file_type}_tgz", work_dir)
+
+
 def resolve_source(args):
     """Determine the firmware source and download it if needed."""
     if os.path.isfile(args.source):
@@ -106,16 +187,16 @@ def resolve_source(args):
         )
 
     work_dir = busybar_workdir_get(url_to_dir_name(args.source_url))
-    index_parsed = busybar_get_index_by_url(args.source_url, args.target, work_dir)
 
     source_file = None
     try:
-        source_file = busybar_download_file_by_filetype(args.source_url, f"{file_type}_tgz", work_dir, index_parsed)
+        source_file = _download_source_file(args.source, args.source_url, args.target, file_type, work_dir)
     except Exception as e:
         logging.error(f"Failed to get file by type {file_type}_tgz: {e}")
 
     if source_file is None:
         try:
+            index_parsed = busybar_get_index_by_url(args.source_url, args.target, work_dir)
             source_file = busybar_download_file_by_filetype(args.source_url, f"{file_type}_tar", work_dir, index_parsed)
         except Exception as e:
             logging.error(f"Failed to get file by type {file_type}_tar: {e}")
@@ -169,4 +250,3 @@ def _place_result(src_path, output):
         dst = output
     shutil.copy2(src_path, dst)
     return dst
-
