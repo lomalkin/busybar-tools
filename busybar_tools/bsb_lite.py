@@ -203,16 +203,16 @@ class BSB_Lite():
         assert 0 <= g <= 255
         assert 0 <= b <= 255
         self.send(f"status_lights {r} {g} {b}\r")
-        return self.read_until_prompt(timeout=None).decode("ascii").split(self.CLI_EOL)
+        return self.read_until_prompt(timeout=None).decode("utf-8", errors="replace").split(self.CLI_EOL)
 
     def device_info(self, timeout=3*2):
         self.send("device_info\r")
-        lines = self.read_until_prompt(timeout=timeout).decode("ascii").split(self.CLI_EOL)
+        lines = self.read_until_prompt(timeout=timeout).decode("utf-8", errors="replace").split(self.CLI_EOL)
         return parse_kv(lines)
 
     def cmd_oneshot(self, cmd: str, timeout=1):
         self.send(f"{cmd}\r")
-        lines = self.read_until_prompt(timeout=timeout).decode("ascii").split(self.CLI_EOL)
+        lines = self.read_until_prompt(timeout=timeout).decode("utf-8", errors="replace").split(self.CLI_EOL)
         lines = [line for line in lines if line.strip() != cmd.strip()] # remove command itself
         lines = lines_clean(lines)
         return lines
@@ -222,13 +222,17 @@ class BSB_Lite():
         cmd = f"sysctl debug {value}\r"
         return self.cmd_oneshot(cmd, timeout=1)
 
-    # def cmd_sl_cli_enter(self, timeout=3):
-    #     self.CLI_PROMPT = "917>: "
-    #     return self.cmd_oneshot("sl_cli", timeout=timeout)
+    def cmd_sl_cli_enter(self, timeout=5):
+        self.CLI_PROMPT = "917>: "
+        return self.cmd_oneshot("sl_cli", timeout=timeout)
 
-    # def cmd_sl_cli_exit(self, timeout=1):
-    #     self.CLI_PROMPT = self.CLI_PROMPT_DEFAULT
-    #     return self.cmd_oneshot("exit", timeout=timeout)
+    def cmd_sl_cli_exit(self, timeout=2):
+        self.CLI_PROMPT = self.CLI_PROMPT_DEFAULT
+        return self.cmd_oneshot("exit", timeout=timeout)
+
+    def cmd_interrupt(self, timeout=2):
+        self.send("\x03")
+        return self.read_until_prompt(timeout=timeout).decode("utf-8", errors="replace").split(self.CLI_EOL)
 
     # def cmd_sl_cli_wifi_rf_test_enter(self, timeout=5):
     #     self.CLI_PROMPT = "wifi_rf_test>: "

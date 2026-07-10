@@ -17,6 +17,7 @@ from busybar_tools.commands.install import (
     run_write_recovery,
 )
 from busybar_tools.commands.recover import run_recover
+from busybar_tools.commands.report import run_report
 from busybar_tools.commands.storage import run_storage
 from busybar_tools.commands.wait import run_clean, run_wait_for_device
 from busybar_tools.config import DIR_BSB_RECOVERY, DIR_BSB_TMP_UPDATE
@@ -66,6 +67,7 @@ __all__ = [
     "run_fetch",
     "run_install",
     "run_recover",
+    "run_report",
     "run_storage",
     "run_update_from_recovery",
     "run_update_from_storage",

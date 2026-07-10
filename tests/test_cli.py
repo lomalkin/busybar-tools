@@ -130,6 +130,40 @@ def test_recover_defaults(monkeypatch):
     }
 
 
+def test_report_options(monkeypatch):
+    captured = {}
+
+    def fake_report(args):
+        captured.update(vars(args))
+        return 0
+
+    monkeypatch.setattr(cli, "run_report", fake_report)
+    ret = run_cli(monkeypatch, [
+        "report",
+        "-d", "r",
+        "-p", "2323",
+        "--http-port", "8080",
+        "-o", "report.zip",
+        "--api-token", "1234",
+        "--timeout", "9",
+        "--no-wait",
+        "--no-logs",
+        "--no-screens",
+        "--no-cli",
+    ])
+    assert ret == 0
+    assert captured["device"] == cli.DEVICE_IP_REF
+    assert captured["port"] == 2323
+    assert captured["http_port"] == 8080
+    assert captured["output"] == "report.zip"
+    assert captured["api_token"] == "1234"
+    assert captured["timeout"] == 9
+    assert captured["no_wait"] is True
+    assert captured["with_logs"] is False
+    assert captured["screens"] is False
+    assert captured["cli"] is False
+
+
 def test_help_exits_zero_and_mentions_auto_install(monkeypatch, capsys):
     assert run_cli(monkeypatch, ["--help"]) == 0
     assert "auto-install" in capsys.readouterr().out
@@ -147,6 +181,7 @@ def test_command_registration_order(monkeypatch, capsys):
         "auto-install",
         "cli",
         "recover",
+        "report",
         "storage",
         "install",
         "fetch",

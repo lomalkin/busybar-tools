@@ -47,6 +47,7 @@ After the first `pipx ensurepath` you may need to open a new terminal.
       auto-install     Autodetect target & signing, then install — recommended for most users
       cli              CLI terminal session, or run commands non-interactively
       recover          Recover STM32U5 firmware via USB DFU
+      report           Collect a diagnostic report archive from the device
       storage          Run the embedded storage.py utility on the device
       install          Install firmware from an explicit source (low-level)
       fetch            Download (and optionally unpack) a firmware bundle locally
@@ -61,7 +62,7 @@ After the first `pipx ensurepath` you may need to open a new terminal.
 Options go **after** the command (e.g. `busybar install -t 21 0.10.2`). Run `busybar <command> --help`
 for the full list.
 
-Device commands (`auto-install`, `cli`, `recover`, `storage`, `install`, `write-recovery`, `install-onboard`,
+Device commands (`auto-install`, `cli`, `recover`, `report`, `storage`, `install`, `write-recovery`, `install-onboard`,
 `wait`) accept `-d/--device` (IP; `r`/`ref` = reference device) and `-p/--port` (default 23). Device
 commands except `recover` and `wait` also accept `--no-wait` to skip the pre-operation reachability
 check; `recover` has its own `--no-wait-after` option.
@@ -118,6 +119,23 @@ on Linux.
 If automatic DFU entry fails, the command asks you to put BUSY Bar into DFU mode manually.
 After flashing, it sends an explicit DfuSe leave command. Some devices may still need a manual reboot:
 hold Start and Back for about 3 seconds, then release and wait for the device to boot.
+
+### `busybar report`
+
+Collect a diagnostic archive from the device.
+
+    busybar report [-o report.zip] [--with-logs | --no-logs] [--screens | --no-screens]
+                   [--cli | --no-cli] [-d DEVICE] [-p PORT] [--http-port PORT]
+
+The archive includes `SUMMARY.md`, `summary.json`, HTTP API status snapshots, raw and PNG display
+frames, read-only CLI diagnostics, U5/917 `top` runtime snapshots, heap/free output, command help, and
+logs when the firmware exposes `POST /api/log_dump`. `SUMMARY.md` highlights failed collectors,
+non-OK update state, weak/disconnected Wi-Fi, low battery, and log errors/warnings. Full logs stay in
+`logs/dump.log`, with `logs/errors.txt` and `logs/warnings.txt` added when matching lines are found.
+If log collection or the 917 CLI is unavailable on older firmware, the command records the failure in
+`manifest.json` and still produces the report. Known sensitive fields (tokens, keys, passwords,
+pairing codes, SSIDs, and similar values) are redacted from JSON snapshots, CLI output, logs, and
+summaries.
 
 ### `busybar storage`
 

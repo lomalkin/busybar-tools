@@ -18,6 +18,7 @@ from busybar_tools.commands.cli_terminal import run_cli_terminal
 from busybar_tools.commands.fetch import run_fetch
 from busybar_tools.commands.install import run_install, run_update_local, run_write_recovery
 from busybar_tools.commands.recover import run_recover
+from busybar_tools.commands.report import run_report
 from busybar_tools.commands.storage import run_storage
 from busybar_tools.commands.wait import run_clean, run_wait_for_device
 from busybar_tools.config import DEVICE_IP, DEVICE_IP_REF, DEVICE_PORT, U5_TARGET_HW, UPDATE_DEFAULT_SOURCE
@@ -49,6 +50,7 @@ COMMAND_HELP = [
     ("auto-install", "Automatic install for regular users (autodetects target & signing)"),
     ("cli", "CLI terminal session to the device"),
     ("recover", "Recover STM32U5 firmware via USB DFU"),
+    ("report", "Collect a diagnostic report archive from the device"),
     ("storage", "Run the embedded storage.py utility on the device"),
     ("install", "Install firmware from an explicit source"),
     ("fetch", "Download and optionally unpack a firmware bundle locally"),
@@ -218,6 +220,33 @@ def recover(
         dfu_timeout=dfu_timeout,
         wait_timeout=wait_timeout,
         no_wait_after=no_wait_after,
+    )))
+
+
+@app.command("report", help="Collect a diagnostic report archive from the device")
+def report(
+    device: str = typer.Option(DEVICE_IP, "-d", "--device", help=f"Device IP (or 'r'/'ref'), default: {DEVICE_IP}"),
+    port: int = typer.Option(DEVICE_PORT, "-p", "--port", help=f"Device CLI port, default: {DEVICE_PORT}"),
+    http_port: int = typer.Option(80, "--http-port", help="Device HTTP API port, default: 80"),
+    output: Optional[str] = typer.Option(None, "-o", "--output", help="Output .zip path"),
+    api_token: Optional[str] = typer.Option(None, "--api-token", help="HTTP API token for devices with access key enabled"),
+    timeout: int = typer.Option(5, "--timeout", help="HTTP request timeout in seconds"),
+    no_wait: bool = typer.Option(False, "--no-wait", help="Skip the device reachability check before the operation"),
+    with_logs: bool = typer.Option(True, "--with-logs/--no-logs", help="Try to include firmware log dump"),
+    screens: bool = typer.Option(True, "--screens/--no-screens", help="Include raw display frame captures"),
+    cli: bool = typer.Option(True, "--cli/--no-cli", help="Include read-only CLI diagnostics"),
+):
+    return _finish(run_report(_args(
+        device=device,
+        port=port,
+        http_port=http_port,
+        output=output,
+        api_token=api_token,
+        timeout=timeout,
+        no_wait=no_wait,
+        with_logs=with_logs,
+        screens=screens,
+        cli=cli,
     )))
 
 
