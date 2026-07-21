@@ -1,23 +1,24 @@
-import logging
 import shutil
 
-from busybar_tools.device import wait_for_device_maybe
-from busybar_tools.helpers import busybar_workdir_get
+from busybar_tools.cache import workdir
+from busybar_tools.device import ensure_device_reachable
+from busybar_tools.errors import BusybarError
+from busybar_tools.options import WaitOptions
 
 
-def run_wait_for_device(args):
-    wait_for_device_maybe(args)
+def run_wait_for_device(options: WaitOptions):
+    ensure_device_reachable(options.endpoint, verbose=options.verbose)
+    return 0
 
 
-def run_clean(args):
-    dir = busybar_workdir_get()
-    print(f"Cleaning up {dir}...")
+def run_clean():
+    directory = workdir()
+    print(f"Cleaning up {directory}...")
 
     try:
-        shutil.rmtree(dir, ignore_errors=True)
+        shutil.rmtree(directory, ignore_errors=True)
     except Exception as e:
-        logging.error(f"Error cleaning up {dir}: {e}")
-        return 1
+        raise BusybarError(f"Error cleaning up {directory}: {e}") from e
 
     return 0
 

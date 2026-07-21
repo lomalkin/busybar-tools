@@ -3,11 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Optional, Union
 
+from busybar_tools.options import DeviceEndpoint
+
 
 @dataclass
 class ReportOptions:
-    device: str
-    cli_port: int
+    endpoint: DeviceEndpoint
     http_port: int = 80
     output: Optional[str] = None
     api_token: Optional[str] = None

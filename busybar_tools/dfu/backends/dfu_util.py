@@ -27,9 +27,11 @@ class DfuUtilBackend:
         try:
             result = subprocess.check_output([self.executable, "--list"], stderr=subprocess.STDOUT)
         except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Error executing {self.UTIL_BIN_NAME}: {e.output.decode(errors='replace')}")
+            raise RuntimeError(
+                f"Error executing {self.UTIL_BIN_NAME}: {e.output.decode(errors='replace')}"
+            ) from e
         except OSError as e:
-            raise RuntimeError(f"Error executing {self.UTIL_BIN_NAME}: {e}")
+            raise RuntimeError(f"Error executing {self.UTIL_BIN_NAME}: {e}") from e
         text = result.decode(errors="replace").lower()
         return "found dfu" in text or f"{DFU_VENDOR_ID:04x}:{DFU_PRODUCT_ID:04x}" in text
 
@@ -46,7 +48,7 @@ class DfuUtilBackend:
         try:
             subprocess.check_call(cmd)
         except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"dfu-util failed with exit code {e.returncode}")
+            raise RuntimeError(f"dfu-util failed with exit code {e.returncode}") from e
 
     def leave_dfu(self, address="0x080fffff"):
         if not self.is_available():
@@ -190,4 +192,3 @@ def ensure_dfu_util(executable=None, auto_install=True):
     if backend.is_available():
         return backend
     raise RuntimeError(f"dfu-util installation finished, but dfu-util was not found on PATH. {dfu_util_install_hint()}")
-

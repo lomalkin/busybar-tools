@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import http.client
 import json
-from typing import Optional
+import os
+from typing import Callable, Optional
 from urllib import error, parse, request
 
 from busybar_tools.config import HTTP_USER_AGENT
@@ -80,3 +82,45 @@ class BusybarApiClient:
 
     def post_json(self, path: str, params: Optional[dict] = None, data: bytes = b""):
         return json.loads(self.post_bytes(path, params=params, data=data).decode("utf-8"))
+
+    def upload_file(
+        self,
+        path: str,
+        local_path: str,
+        progress: Optional[Callable[[int, int], None]] = None,
+    ) -> bytes:
+        """Stream a file to a device endpoint without loading it into memory."""
+        total_size = os.path.getsize(local_path)
+        conn = http.client.HTTPConnection(self.host, self.port, timeout=self.timeout)
+        url = self._url(path)
+        try:
+            conn.putrequest("POST", path)
+            for key, value in self._headers({
+                "Content-Type": "application/octet-stream",
+                "Content-Length": str(total_size),
+            }).items():
+                conn.putheader(key, value)
+            conn.endheaders()
+
+            sent = 0
+            with open(local_path, "rb") as source:
+                while True:
+                    chunk = source.read(65536)
+                    if not chunk:
+                        break
+                    conn.send(chunk)
+                    sent += len(chunk)
+                    if progress:
+                        progress(sent, total_size)
+
+            response = conn.getresponse()
+            body = response.read()
+            if not 200 <= response.status < 300:
+                raise BusybarApiError("POST", url, response.status, body)
+            return body
+        except BusybarApiError:
+            raise
+        except Exception as exc:
+            raise BusybarApiError("POST", url, None) from exc
+        finally:
+            conn.close()

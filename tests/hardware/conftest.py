@@ -4,14 +4,12 @@ Edit the constants below to tune the flashing tests.
 """
 import os
 import time
-import types
 
 import pytest
 
 import busybar_tools as bt
-from busybar_tools.bsb_lite import BSB_Lite
-from busybar_tools.device import _DETECT_FIELDS, _VERSION_FIELDS
-from busybar_tools.helpers import network_ping_bool, wait_for_device
+from busybar_tools.device import BusybarCli, DETECT_FIELDS, VERSION_FIELDS
+from busybar_tools.network import network_ping_bool, wait_for_device
 
 # --- test config (edit here) ------------------------------------------------
 # write-recovery always flashes this pinned, known-good recovery image.
@@ -23,7 +21,7 @@ REBOOT_OFFLINE_TIMEOUT = 180   # seconds to allow the device to drop offline
 POST_REBOOT_READ_RETRIES = 30  # device_read_info attempts after it comes back
 # ----------------------------------------------------------------------------
 
-_READY_KEYS = _VERSION_FIELDS + _DETECT_FIELDS
+_READY_KEYS = VERSION_FIELDS + DETECT_FIELDS
 
 
 @pytest.fixture(scope="session")
@@ -37,6 +35,11 @@ def device_port(pytestconfig):
 
 
 @pytest.fixture(scope="session")
+def device_endpoint(device_host, device_port):
+    return bt.DeviceEndpoint(device_host, device_port)
+
+
+@pytest.fixture(scope="session")
 def live_device(device_host, device_port):
     """Skip the hardware test if the device is not reachable."""
     if not network_ping_bool(device_host, timeout=2):
@@ -45,9 +48,8 @@ def live_device(device_host, device_port):
 
 
 @pytest.fixture(scope="session")
-def device_info_live(live_device):
-    host, port = live_device
-    return bt.device_read_info(host, port, retries=10, delay=2, required_keys=_READY_KEYS)
+def device_info_live(device_endpoint):
+    return bt.read_device_info(device_endpoint, retries=10, delay=2, required_keys=_READY_KEYS)
 
 
 @pytest.fixture
@@ -71,37 +73,24 @@ def recovery_version():
 
 
 @pytest.fixture
-def make_args(live_device):
-    """Factory for an args namespace; pass per-command fields as kwargs."""
-    host, port = live_device
-
-    def _make(**over):
-        base = dict(device=host, port=port, verbose=True, no_wait=True)
-        base.update(over)
-        return types.SimpleNamespace(**base)
-
-    return _make
-
-
-@pytest.fixture
-def wait_until_back(live_device):
+def wait_until_back(device_endpoint):
     """Wait through a reboot: offline (bounded) -> online (unbounded) -> read full device_info."""
-    host, port = live_device
+    host = device_endpoint.host
 
     def _wait():
         wait_for_device(host, timeout=REBOOT_OFFLINE_TIMEOUT, verbose=True, success_ping_as=False)
         wait_for_device(host, verbose=True)  # no timeout: just wait until reachable
-        return bt.device_read_info(host, port, retries=POST_REBOOT_READ_RETRIES, delay=2, required_keys=_READY_KEYS)
+        return bt.read_device_info(device_endpoint, retries=POST_REBOOT_READ_RETRIES, delay=2, required_keys=_READY_KEYS)
 
     return _wait
 
 
 @pytest.fixture
-def device_cleanup(make_args):
+def device_cleanup(device_endpoint):
     """Best-effort removal of an on-device path (for test teardown)."""
     def _rm(path):
         try:
-            bt.run_storage(make_args(verbose=False, storage_args=["--", "remove", path]))
+            bt.StorageService(device_endpoint, wait_before=False, verbose=False).remove(path)
         except Exception:
             pass
 
@@ -114,17 +103,16 @@ def prefetched_bundle(live_device, device_info_live, tmp_path_factory):
     target = bt.device_info_target(device_info_live)
     signed = bt.device_info_signed(device_info_live)
     branch = device_info_live["u5_firmware_branch"]
-    base = dict(source=branch, target=target, signed=signed, update_bundle_type="update")
-
     file_dir = tmp_path_factory.mktemp("bundle_file")
-    bt.run_fetch(types.SimpleNamespace(**base, unpack=False, output=str(file_dir) + os.sep))
+    selection = bt.FirmwareSelection(branch, target, "update", signed)
+    bt.run_fetch(bt.FetchOptions(selection, unpack=False, output=str(file_dir) + os.sep))
     bundle_file = next(p for p in file_dir.iterdir() if p.is_file())
 
     unpack_dir = tmp_path_factory.mktemp("bundle_unpacked")
-    bt.run_fetch(types.SimpleNamespace(**base, unpack=True, output=str(unpack_dir)))
+    bt.run_fetch(bt.FetchOptions(selection, unpack=True, output=str(unpack_dir)))
 
-    return types.SimpleNamespace(file=str(bundle_file), dir=str(unpack_dir),
-                                 target=target, signed=signed, branch=branch)
+    return {"file": str(bundle_file), "dir": str(unpack_dir),
+            "target": target, "signed": signed, "branch": branch}
 
 
 @pytest.fixture
@@ -140,7 +128,7 @@ def factory_reset(live_device):
         return bsb.read.until_timeout("\x00", timeout=secs)
 
     def _reset():
-        with BSB_Lite((host, port)) as bsb:
+        with BusybarCli((host, port)) as bsb:
             bsb.send("sysctl debug 1\r")
             _drain(bsb, 1)
             bsb.send("factory_reset\r")

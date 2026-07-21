@@ -10,7 +10,6 @@ from busybar_tools.api import BusybarApiClient
 from busybar_tools.report.models import ReportManifest
 from busybar_tools.report.util import write_json
 
-
 SCREEN_SPECS = {
     0: {"name": "front", "width": 72, "height": 16, "format": "rgb888"},
     1: {"name": "back", "width": 160, "height": 80, "format": "l4_nibble_packed"},

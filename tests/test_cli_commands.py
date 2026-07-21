@@ -8,6 +8,7 @@ import io
 import busybar_tools.commands.cli_terminal as cli_cmd
 import busybar_tools.bsb_term as bsb_term
 from busybar_tools.bsb_term import _prelude_bytes, _inject_prelude
+from busybar_tools.options import CliOptions, DeviceEndpoint
 
 
 class FakeStdin:
@@ -23,10 +24,10 @@ class FakeStdin:
 
 
 def _args(**kw):
-    base = dict(device="10.0.0.1", port=23, verbose=False, no_wait=True,
-                interactive=False, timeout=5, cli_args=[])
+    base = dict(endpoint=DeviceEndpoint("10.0.0.1", 23), verbose=False, wait_before=False,
+                interactive=False, timeout=5, commands=())
     base.update(kw)
-    return types.SimpleNamespace(**base)
+    return CliOptions(**base)
 
 
 @pytest.fixture
@@ -41,7 +42,7 @@ def recorder(monkeypatch):
         calls["batch"].append(list(cmds))
         return 0
 
-    monkeypatch.setattr(cli_cmd, "wait_for_device_maybe", lambda args: None)
+    monkeypatch.setattr(cli_cmd, "ensure_device_reachable", lambda *args, **kwargs: None)
     monkeypatch.setattr(cli_cmd, "run_session", fake_session)
     monkeypatch.setattr(cli_cmd, "_run_cli_batch", fake_batch)
     return calls
@@ -100,21 +101,21 @@ def test_inject_prelude_noop_when_empty(monkeypatch):
 
 def test_args_with_i_and_tty_stays_interactive(monkeypatch, recorder):
     monkeypatch.setattr("sys.stdin", FakeStdin(isatty=True))
-    cli_cmd.run_cli_terminal(_args(cli_args=["--", "device_info"], interactive=True))
+    cli_cmd.run_cli_terminal(_args(commands=("--", "device_info"), interactive=True))
     assert recorder["session"] == [{"prelude": "device_info"}]
     assert recorder["batch"] == []
 
 
 def test_args_with_i_no_tty_falls_back_to_batch(monkeypatch, recorder):
     monkeypatch.setattr("sys.stdin", FakeStdin(isatty=False))
-    cli_cmd.run_cli_terminal(_args(cli_args=["--", "device_info"], interactive=True))
+    cli_cmd.run_cli_terminal(_args(commands=("--", "device_info"), interactive=True))
     assert recorder["session"] == []
     assert recorder["batch"] == [["device_info"]]
 
 
 def test_args_without_i_runs_batch(monkeypatch, recorder):
     monkeypatch.setattr("sys.stdin", FakeStdin(isatty=True))
-    cli_cmd.run_cli_terminal(_args(cli_args=["--", "sysctl", "debug", "1"]))
+    cli_cmd.run_cli_terminal(_args(commands=("--", "sysctl", "debug", "1")))
     assert recorder["session"] == []
     assert recorder["batch"] == [["sysctl debug 1"]]
 
@@ -152,7 +153,7 @@ def test_run_cli_batch_sends_commands_in_order(monkeypatch, capsys):
             sent.append((cmd, timeout))
             return [f"out:{cmd}"]
 
-    monkeypatch.setattr(cli_cmd, "BSB_Lite", FakeBSB)
+    monkeypatch.setattr(cli_cmd, "BusybarCli", FakeBSB)
     ret = cli_cmd._run_cli_batch(_args(timeout=7), ["uptime", "device_info"])
     out = capsys.readouterr().out
     assert ret == 0
@@ -165,7 +166,7 @@ def test_run_cli_batch_returns_1_on_failure(monkeypatch):
         def __init__(self, *a, **k):
             raise OSError("no device")
 
-    monkeypatch.setattr(cli_cmd, "BSB_Lite", Boom)
+    monkeypatch.setattr(cli_cmd, "BusybarCli", Boom)
     assert cli_cmd._run_cli_batch(_args(), ["uptime"]) == 1
 
 
@@ -173,17 +174,18 @@ def test_run_cli_batch_returns_1_on_failure(monkeypatch):
 
 def test_cli_i_dashdash_parses(monkeypatch):
     import sys
-    import busybar_tools.cli as cli
+    from busybar_tools.cli import busybar_main
+    import busybar_tools.presentation.device as device_cli
 
     captured = {}
 
     def fake(args):
         captured["interactive"] = args.interactive
-        captured["cli_args"] = list(args.cli_args)
+        captured["cli_args"] = list(args.commands)
         return 0
 
-    monkeypatch.setattr(cli, "run_cli_terminal", fake)
+    monkeypatch.setattr(device_cli, "run_cli_terminal", fake)
     monkeypatch.setattr(sys, "argv", ["busybar", "cli", "-i", "--", "device_info"])
-    cli.busybar_main()
+    busybar_main()
     assert captured["interactive"] is True
     assert captured["cli_args"][-1] == "device_info"

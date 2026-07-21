@@ -6,20 +6,17 @@ write-recovery does not reboot - it overwrites /bkp. Run with: pytest --run-flas
 import pytest
 
 import busybar_tools as bt
-from busybar_tools.device import _DETECT_FIELDS, _VERSION_FIELDS
+from busybar_tools.device import DETECT_FIELDS, VERSION_FIELDS
 
 
 @pytest.mark.flash
-def test_write_recovery_pinned(make_args, autodetect, recovery_version, live_device):
-    host, port = live_device
-    args = make_args(
-        source=recovery_version, target=autodetect["target"], signed=autodetect["signed"],
-        update_bundle_type="bkp", confirm_timeout=0,
-    )
-    assert bt.run_write_recovery(args) == 0
+def test_write_recovery_pinned(device_endpoint, autodetect, recovery_version):
+    selection = bt.FirmwareSelection(recovery_version, autodetect["target"], "bkp", autodetect["signed"], True)
+    options = bt.WriteRecoveryOptions(device_endpoint, selection, wait_before=False, confirm_timeout=0)
+    assert bt.run_write_recovery(options) == 0
     # No reboot: the device should still answer right after the write.
-    info = bt.device_read_info(
-        host, port, retries=5, delay=2,
-        required_keys=_VERSION_FIELDS + _DETECT_FIELDS,
+    info = bt.read_device_info(
+        device_endpoint, retries=5, delay=2,
+        required_keys=VERSION_FIELDS + DETECT_FIELDS,
     )
     assert info.get("u5_firmware_target")

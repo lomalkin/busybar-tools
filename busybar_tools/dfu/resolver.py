@@ -2,29 +2,22 @@ import json
 import logging
 import os
 
-from busybar_tools.helpers import (
-    busybar_update_get_index_file_name,
-    busybar_update_parse_index,
-    busybar_update_url_normalize,
-    busybar_workdir_get,
-    fetch_url,
-    file_download,
-    file_sha256,
-    url_to_dir_name,
-)
+from busybar_tools.cache import url_cache_key, workdir
+from busybar_tools.downloads import download_file, fetch_text
+from busybar_tools.firmware.index import index_filename, normalize_update_url, parse_index, sha256_file
 
 
 def _download_index_file(source_url, target, work_dir):
-    index_name = busybar_update_get_index_file_name(target)
+    index_name = index_filename(target)
     index_url = f"{source_url}{index_name}"
-    index_data = fetch_url(index_url, timeout=10)
+    index_data = fetch_text(index_url, timeout=10)
     if not index_data:
         raise RuntimeError(f"Failed to fetch DFU index {index_url}")
 
     index_path = os.path.join(work_dir, index_name)
     with open(index_path, "w") as f:
         f.write(index_data)
-    return busybar_update_parse_index(index_data, source_url)
+    return parse_index(index_data, source_url)
 
 
 def _download_index_match(source_url, target, work_dir):
@@ -36,12 +29,12 @@ def _download_index_match(source_url, target, work_dir):
                 continue
             file_path = os.path.join(work_dir, file_info["file_name"])
             if not os.path.exists(file_path):
-                file_path = file_download(file_info["file_url"], file_info["file_name"], work_dir, progress=True)
-            actual_hash = file_sha256(file_path)
+                file_path = download_file(file_info["file_url"], file_info["file_name"], work_dir, progress=True)
+            actual_hash = sha256_file(file_path)
             if actual_hash != file_info["sha256sum"]:
                 logging.warning(f"DFU hash mismatch for {file_info['file_name']}; downloading again")
-                file_path = file_download(file_info["file_url"], file_info["file_name"], work_dir, progress=True)
-                actual_hash = file_sha256(file_path)
+                file_path = download_file(file_info["file_url"], file_info["file_name"], work_dir, progress=True)
+                actual_hash = sha256_file(file_path)
             if actual_hash != file_info["sha256sum"]:
                 raise RuntimeError(
                     f"DFU hash check failed for {file_info['file_name']}: "
@@ -57,7 +50,7 @@ def _download_directory_json_match(source, target, work_dir):
     else:
         directory_url = "https://update.flipperzero.one/busybar-firmware/directory.json"
 
-    data = fetch_url(directory_url, timeout=10)
+    data = fetch_text(directory_url, timeout=10)
     if not data:
         raise RuntimeError(f"Failed to fetch firmware directory {directory_url}")
 
@@ -89,9 +82,9 @@ def _download_directory_json_match(source, target, work_dir):
             name = os.path.basename(url.split("?", 1)[0]) or f"busybar-{target_name}-recovery.dfu"
             file_path = os.path.join(work_dir, name)
             if not os.path.exists(file_path):
-                file_path = file_download(url, name, work_dir, progress=True)
+                file_path = download_file(url, name, work_dir, progress=True)
             expected = file_info.get("sha256")
-            actual = file_sha256(file_path)
+            actual = sha256_file(file_path)
             if expected and actual != expected:
                 raise RuntimeError(f"DFU hash check failed for {name}: expected {expected}, got {actual}")
             return file_path
@@ -106,11 +99,10 @@ def resolve_recovery_dfu(source, target):
             raise RuntimeError(f"Recovery source must be a .dfu file, got: {path}")
         return path
 
-    source_url = busybar_update_url_normalize(source)
-    work_dir = busybar_workdir_get(url_to_dir_name(source_url) + "_dfu")
+    source_url = normalize_update_url(source)
+    work_dir = workdir(url_cache_key(source_url) + "_dfu")
     try:
         return _download_index_match(source_url, target, work_dir)
     except Exception as index_error:
         logging.warning(f"Could not resolve DFU from update index: {index_error}")
         return _download_directory_json_match(source, target, work_dir)
-

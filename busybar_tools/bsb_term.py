@@ -1,13 +1,12 @@
+import platform
+import select
 import socket
 import sys
-import select
-import platform
 import threading
 import time
 
 if platform.system() != "Windows":
     import termios
-    import tty
 else:
     import msvcrt
 

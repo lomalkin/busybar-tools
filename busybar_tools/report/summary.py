@@ -59,9 +59,9 @@ def build_summary(options: ReportOptions, manifest: ReportManifest, collected: D
             "python": sys.version.split()[0],
         },
         "device": {
-            "host": options.device,
+            "host": options.endpoint.host,
             "http_port": options.http_port,
-            "cli_port": options.cli_port,
+            "cli_port": options.endpoint.port,
             "name": _first(collected, ("api/name.json", "name"), ("api/name.json", "value")),
             "transport": _get(collected, "api/transport.json", "type"),
             "api_semver": _get(collected, "api/version.json", "api_semver"),

@@ -8,7 +8,6 @@ from busybar_tools.report.models import ReportManifest
 from busybar_tools.report.redaction import redact
 from busybar_tools.report.util import write_json
 
-
 JSON_ENDPOINTS = [
     ("api/version.json", "/api/version", None),
     ("api/transport.json", "/api/transport", None),

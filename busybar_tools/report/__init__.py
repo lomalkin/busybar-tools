@@ -30,7 +30,7 @@ def create_report(options: ReportOptions) -> str:
     os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
 
     api = BusybarApiClient(
-        options.device,
+        options.endpoint.host,
         port=options.http_port,
         token=options.api_token,
         timeout=options.timeout,
@@ -39,9 +39,9 @@ def create_report(options: ReportOptions) -> str:
         created_at=datetime.now().isoformat(timespec="seconds"),
         tool_version=_tool_version(),
         device={
-            "host": options.device,
+            "host": options.endpoint.host,
             "http_port": options.http_port,
-            "cli_port": options.cli_port,
+            "cli_port": options.endpoint.port,
         },
         host={
             "hostname": socket.gethostname(),

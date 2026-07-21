@@ -3,10 +3,9 @@ from __future__ import annotations
 from typing import Any, Dict
 from zipfile import ZipFile
 
-from busybar_tools.bsb_lite import BSB_Lite
+from busybar_tools.device import BusybarCli
 from busybar_tools.report.models import ReportManifest, ReportOptions
 from busybar_tools.report.redaction import redact_lines
-
 
 CLI_COMMANDS = [
     ("help", "?", 5),
@@ -32,7 +31,7 @@ def collect_cli(
 ) -> None:
     cli_results = {}
     try:
-        with BSB_Lite((options.device, options.cli_port)) as bsb:
+        with BusybarCli(options.endpoint.address) as bsb:
             for slug, command, timeout in CLI_COMMANDS:
                 name = f"cli:{command}"
                 try:
@@ -52,7 +51,7 @@ def collect_cli(
 
 def collect_917_top(
     zipf: ZipFile,
-    bsb: BSB_Lite,
+    bsb: BusybarCli,
     manifest: ReportManifest,
     cli_results: Dict[str, Any],
 ) -> None:

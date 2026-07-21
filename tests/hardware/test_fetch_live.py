@@ -4,16 +4,17 @@ Does not touch the device (only network + local disk). Guards the download / Use
 and covers the fetch argument combinations. Run with: pytest --run-hardware (slow: real downloads).
 """
 import os
-import types
 
 import busybar_tools as bt
 
 
 def _fetch_args(tmp_path, **over):
-    base = dict(source="dev", target=22, signed=True, update_bundle_type="update",
+    base = dict(source="dev", target=22, signed=True, bundle_type="update",
                 unpack=False, output=str(tmp_path) + os.sep)
     base.update(over)
-    return types.SimpleNamespace(**base)
+    unpack = base.pop("unpack")
+    output = base.pop("output")
+    return bt.FetchOptions(bt.FirmwareSelection(**base), unpack=unpack, output=output)
 
 
 def test_fetch_into_directory(tmp_path):
@@ -38,7 +39,7 @@ def test_fetch_unpack(tmp_path):
 
 
 def test_fetch_bkp_bundle(tmp_path):
-    ret = bt.run_fetch(_fetch_args(tmp_path, update_bundle_type="bkp"))
+    ret = bt.run_fetch(_fetch_args(tmp_path, bundle_type="bkp"))
     assert ret == 0
     files = [p for p in tmp_path.iterdir() if p.is_file()]
     assert files and files[0].stat().st_size > 0

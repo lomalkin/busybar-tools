@@ -5,6 +5,7 @@ import zipfile
 import busybar_tools.report as report
 import busybar_tools.report.cli as report_cli
 from busybar_tools.report import ReportOptions, create_report
+from busybar_tools.options import DeviceEndpoint
 
 
 class FakeApi:
@@ -97,10 +98,10 @@ class FakeBsb:
 def test_report_collects_logs_and_manifest(monkeypatch, tmp_path):
     FakeApi.fail_logs = False
     monkeypatch.setattr(report, "BusybarApiClient", FakeApi)
-    monkeypatch.setattr(report_cli, "BSB_Lite", FakeBsb)
+    monkeypatch.setattr(report_cli, "BusybarCli", FakeBsb)
 
     out = tmp_path / "report.zip"
-    path = create_report(ReportOptions(device="192.0.2.1", cli_port=23, output=str(out)))
+    path = create_report(ReportOptions(endpoint=DeviceEndpoint("192.0.2.1", 23), output=str(out)))
 
     assert path == str(out)
     with zipfile.ZipFile(out) as zipf:
@@ -143,10 +144,10 @@ def test_report_collects_logs_and_manifest(monkeypatch, tmp_path):
 def test_report_skips_logs_when_endpoint_is_missing(monkeypatch, tmp_path):
     FakeApi.fail_logs = True
     monkeypatch.setattr(report, "BusybarApiClient", FakeApi)
-    monkeypatch.setattr(report_cli, "BSB_Lite", FakeBsb)
+    monkeypatch.setattr(report_cli, "BusybarCli", FakeBsb)
 
     out = tmp_path / "report.zip"
-    create_report(ReportOptions(device="192.0.2.1", cli_port=23, output=str(out)))
+    create_report(ReportOptions(endpoint=DeviceEndpoint("192.0.2.1", 23), output=str(out)))
 
     with zipfile.ZipFile(out) as zipf:
         names = set(zipf.namelist())

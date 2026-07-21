@@ -48,11 +48,12 @@ After the first `pipx ensurepath` you may need to open a new terminal.
       cli              CLI terminal session, or run commands non-interactively
       recover          Recover STM32U5 firmware via USB DFU
       report           Collect a diagnostic report archive from the device
-      storage          Run the embedded storage.py utility on the device
+      storage          Run storage operations on the device
       install          Install firmware from an explicit source (low-level)
       fetch            Download (and optionally unpack) a firmware bundle locally
       write-recovery   Write a firmware bundle into the recovery partition (no install)
       install-onboard  Install firmware already staged on the device
+      factory-reset    Factory reset the device
       wait             Wait for the device to be reachable
       clean            Clean the package's tmp/cache directory
 
@@ -62,7 +63,7 @@ After the first `pipx ensurepath` you may need to open a new terminal.
 Options go **after** the command (e.g. `busybar install -t 21 0.10.2`). Run `busybar <command> --help`
 for the full list.
 
-Device commands (`auto-install`, `cli`, `recover`, `report`, `storage`, `install`, `write-recovery`, `install-onboard`,
+Device commands (`auto-install`, `cli`, `recover`, `report`, `storage`, `install`, `write-recovery`, `install-onboard`, `factory-reset`,
 `wait`) accept `-d/--device` (IP; `r`/`ref` = reference device) and `-p/--port` (default 23). Device
 commands except `recover` and `wait` also accept `--no-wait` to skip the pre-operation reachability
 check; `recover` has its own `--no-wait-after` option.
@@ -139,10 +140,10 @@ summaries.
 
 ### `busybar storage`
 
-Run the embedded storage.py tool on the device; pass its sub-command after `--`.
+Run storage operations through the built-in sub-command group.
 
-- `busybar storage -- list /ext`
-- `busybar storage -- send ./local.bin /ext/local.bin`
+- `busybar storage list /ext`
+- `busybar storage send ./local.bin /ext/local.bin`
 
 Sub-commands: `mkdir`, `format_ext`, `remove`, `read`, `size`, `receive`, `send`, `list`.
 
@@ -203,6 +204,16 @@ Install firmware already staged on the device (no download/upload).
 - `device_path` — on-device path to install from, or the literal `recovery` for the recovery
   partition (default: the staged update dir).
 
+### `busybar factory-reset`
+
+Factory reset the device over CLI. The command enables debug CLI commands, invokes `factory_reset`,
+confirms the device prompt, and waits for the reboot unless disabled.
+
+    busybar factory-reset [-d DEVICE] [-p PORT] [--shipping-mode] [--no-wait-after]
+
+- `--shipping-mode`, `-s` - invoke `factory_reset -s`, so the device enters shipping mode after reset.
+- `--no-wait-after` - return after confirmation without waiting for the device to reboot and come back.
+
 ### `busybar wait` / `busybar clean`
 
 - `busybar wait` — wait until the device is reachable (useful for scripting).
@@ -226,6 +237,8 @@ the generated completion script without installing it.
 ## Development and Testing
 
 Editable install: `pip install -e .` from the project root (use a virtual environment).
+For development tools use `pip install -e ".[dev]"`. The package boundaries and dependency rules are
+documented in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 Run tests (`pip install -e ".[test]"`). Offline tests always run first, then live ones:
 - `pytest` — the offline test suite.
@@ -251,7 +264,6 @@ To run a subset (e.g. while iterating, to avoid the full flash run) use the stan
 
 ## Upcoming features plan
 - Easy recovery of Busybar via DFU from any possible broken state
-- Factory reset?
 - ...create an [issue](https://github.com/lomalkin/busybar-tools/issues) for any feature requests or bug reports!
 
 
@@ -283,7 +295,7 @@ To run a subset (e.g. while iterating, to avoid the full flash run) use the stan
       (defaults to `--bkp`); the `install --save-as-recovery` / `--install` / `--confirm-timeout` options are removed.
     - `--recovery-timeout` is renamed to `--confirm-timeout`.
     - Invalid combinations now fail with a clear error (e.g. `--via-http` with `--no-install`).
-    - `busybar storage` now selects the device consistently via `-d`/`-p` (pass storage sub-commands after `--`).
+    - `busybar storage` now selects the device consistently via `-d`/`-p`.
     - Added `--no-wait` to skip the device reachability (ping) check on device-facing commands (except `wait`).
     - `write-recovery` logs a warning when used with `--update` instead of `--bkp` (the intended bundle type for recovery).
 

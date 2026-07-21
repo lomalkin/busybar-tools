@@ -1,8 +1,8 @@
 import logging
 import time
 
-from busybar_tools.config import DEVICE_PORT
 from busybar_tools.dfu.backends import PyUsbDfuSeBackend, ensure_dfu_util
+from busybar_tools.options import DeviceEndpoint
 
 
 def ensure_recovery_backend(name="pyusb", dfu_util_executable=None, auto_install_dfu_util=True):
@@ -35,8 +35,8 @@ def wait_for_dfu_device(backend, timeout=30, delay=1):
     return False
 
 
-def enter_dfu_via_cli(device, port=DEVICE_PORT):
-    from busybar_tools.bsb_lite import BSB_Lite
+def enter_dfu_via_cli(endpoint: DeviceEndpoint):
+    from busybar_tools.device import BusybarCli
 
-    with BSB_Lite((device, port)) as bsb:
+    with BusybarCli(endpoint.address) as bsb:
         bsb.cmd_oneshot("power boot u5", timeout=1)

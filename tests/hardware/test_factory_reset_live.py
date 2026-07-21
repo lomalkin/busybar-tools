@@ -7,9 +7,9 @@ Run with: pytest --run-flash  (slow: reboot, minutes).
 import pytest
 
 import busybar_tools as bt
-from busybar_tools.device import _DETECT_FIELDS, _VERSION_FIELDS
+from busybar_tools.device import DETECT_FIELDS, VERSION_FIELDS
 
-_READY = _VERSION_FIELDS + _DETECT_FIELDS
+_READY = VERSION_FIELDS + DETECT_FIELDS
 
 
 @pytest.mark.flash_final
