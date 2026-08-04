@@ -17,8 +17,21 @@ def run_cli(monkeypatch, argv):
 
 
 @pytest.mark.parametrize("command", ["install", "fetch", "write-recovery"])
-def test_source_is_required(monkeypatch, command):
+def test_source_is_required(monkeypatch, capsys, command):
     assert run_cli(monkeypatch, [command]) == 2
+    error = capsys.readouterr().err
+    assert "Missing argument" in error
+    assert f"busybar {command}" in error
+    assert "Traceback" not in error
+
+
+def test_unknown_command_prints_root_help(monkeypatch, capsys):
+    assert run_cli(monkeypatch, ["does-not-exist"]) == 2
+    error = capsys.readouterr().err
+    assert "No such command 'does-not-exist'" in error
+    assert "Usage: busybar [OPTIONS] COMMAND [ARGS]..." in error
+    assert "auto-install" in error
+    assert "Traceback" not in error
 
 
 def test_auto_install_rejects_firmware_flags(monkeypatch):

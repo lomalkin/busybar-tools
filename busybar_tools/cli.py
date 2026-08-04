@@ -70,17 +70,60 @@ register_firmware_commands(app)
 register_device_commands(app)
 
 
-def _print_top_level_help():
-    print("Usage: busybar [OPTIONS] COMMAND [ARGS]...")
-    print("\nFirmware installer and tooling for BUSY Bar devices.\n\nOptions:")
-    print("  --version              Show the busybar-tools version and exit.")
-    print("  --install-completion   Install completion for the current shell.")
-    print("  --show-completion      Show completion for the current shell.")
-    print("  -h, --help             Show this message and exit.\n\nCommands:")
+def _exception_types(*types):
+    return tuple(dict.fromkeys(types))
+
+
+try:
+    from typer._click.exceptions import ClickException as TyperClickException
+    from typer._click.exceptions import Exit as TyperClickExit
+except ImportError:
+    TyperClickException = click.ClickException
+    TyperClickExit = click.exceptions.Exit
+
+
+CLICK_EXCEPTIONS = _exception_types(click.ClickException, TyperClickException)
+CLICK_EXITS = _exception_types(click.exceptions.Exit, TyperClickExit, typer.Exit)
+
+
+def _top_level_help_text():
+    lines = [
+        "Usage: busybar [OPTIONS] COMMAND [ARGS]...",
+        "",
+        "Firmware installer and tooling for BUSY Bar devices.",
+        "",
+        "Options:",
+        "  --version              Show the busybar-tools version and exit.",
+        "  --install-completion   Install completion for the current shell.",
+        "  --show-completion      Show completion for the current shell.",
+        "  -h, --help             Show this message and exit.",
+        "",
+        "Commands:",
+    ]
     width = max(len(name) for name, _ in COMMAND_HELP)
     for name, description in COMMAND_HELP:
-        print(f"  {name:<{width}}  {description}")
-    print("\n" + TOP_EPILOG.strip())
+        lines.append(f"  {name:<{width}}  {description}")
+    lines.extend(("", TOP_EPILOG.strip()))
+    return "\n".join(lines)
+
+
+def _print_top_level_help(file=None):
+    print(_top_level_help_text(), file=file)
+
+
+def _show_parser_error(exc):
+    message = exc.format_message() if hasattr(exc, "format_message") else str(exc)
+    print(f"Error: {message}\n", file=sys.stderr)
+
+    context = getattr(exc, "ctx", None)
+    if context is None or getattr(context, "parent", None) is None:
+        _print_top_level_help(file=sys.stderr)
+        return
+
+    try:
+        print(context.get_help(), file=sys.stderr)
+    except Exception:
+        _print_top_level_help(file=sys.stderr)
 
 
 def busybar_main(argv=None):
@@ -97,10 +140,10 @@ def busybar_main(argv=None):
     try:
         result = command.main(args=args, prog_name="busybar", standalone_mode=False)
         return 0 if result is None else result
-    except click.exceptions.Exit as exc:
+    except CLICK_EXITS as exc:
         return exc.exit_code
-    except click.ClickException as exc:
-        exc.show()
+    except CLICK_EXCEPTIONS as exc:
+        _show_parser_error(exc)
         return exc.exit_code
 
 
