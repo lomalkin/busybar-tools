@@ -10,7 +10,7 @@ import logging
 from urllib.parse import urlparse
 
 from busybar_tools.helpers import (
-    fetch_url, print_pretty, file_download, busybar_workdir_get, url_to_dir_name, busybar_api_update, busybar_update_get_index_file_name, busybar_update_url_normalize, busybar_update_parse_index, file_sha256, wait_for_device
+    fetch_url, print_pretty, file_download, busybar_workdir_get, url_to_dir_name, busybar_api_update, busybar_update_get_index_file_name, busybar_update_url_normalize, busybar_update_parse_index, file_sha256, wait_for_device, confirm_countdown
 )
 
 from busybar_tools.bsb_term import run_session
@@ -731,6 +731,202 @@ def run_storage(args):
     cmd = [sys.executable, "-m", "busybar_tools.storage"] + device_args + storage_args
     logging.info(f"Invoking command: {' '.join(cmd)}")
     return subprocess.call(cmd)
+
+def _recover_resolve_target(args):
+    """Resolve -t/--target for recovery: explicit integer, or 'auto' via device_info.
+
+    No silent fallback: a recovery run usually targets a device whose CLI may be
+    unreachable, and guessing the target risks flashing the wrong image.
+    """
+    target = str(args.target).lower()
+    if target != "auto":
+        return int(target)
+
+    logging.info(f"Reading device info from {args.device}:{args.port}...")
+    try:
+        info = device_read_info(args.device, args.port, retries=1, delay=1, required_keys=("u5_firmware_target",))
+        target = device_info_target(info)
+    except Exception as e:
+        raise RuntimeError(
+            f"Could not autodetect the hardware target from device_info ({e}). "
+            "Pass -t/--target explicitly."
+        ) from e
+    logging.info(f"Detected target {target}.")
+    return target
+
+
+def _recover_enter_dfu(args, backend):
+    """Get a DFU device connected: already present, via the device CLI, or manually."""
+    from busybar_tools.dfu import DFU_MANUAL_INSTRUCTIONS, enter_dfu_via_cli, wait_for_dfu_device
+
+    if backend.find_devices():
+        logging.info("DFU device is already connected.")
+        return True
+
+    if not args.manual_dfu:
+        try:
+            logging.info("Trying to switch the device to DFU mode via CLI...")
+            enter_dfu_via_cli((args.device, args.port))
+            if wait_for_dfu_device(backend, timeout=args.dfu_timeout):
+                logging.info("DFU device detected.")
+                return True
+            logging.warning("The device did not appear in DFU mode after the CLI command.")
+        except Exception as e:
+            logging.warning(f"Could not switch to DFU mode automatically: {e}")
+
+    print(DFU_MANUAL_INSTRUCTIONS)
+    if not sys.stdin.isatty():
+        logging.error("Cannot prompt for manual DFU mode because stdin is not interactive.")
+        return False
+    input("Press Enter when BUSY Bar is in DFU mode...")
+
+    if wait_for_dfu_device(backend, timeout=args.dfu_timeout):
+        logging.info("DFU device detected.")
+        return True
+    return False
+
+
+def run_recover(args):
+    """Recover the U5 firmware over USB DFU.
+
+    Resolves and validates a recovery .dfu image, switches the device to DFU mode
+    (via CLI or manually), erases and reflashes the U5 internal flash, then sends
+    a DfuSe leave request and waits for the device to come back.
+    """
+    # Lazy: the dfu package needs pyusb only at use time, keeping the core zero-dependency.
+    from busybar_tools.dfu import (
+        RECOVERY_RESET_INSTRUCTIONS,
+        ensure_recovery_backend,
+        parse_dfuse_file,
+        resolve_recovery_dfu,
+    )
+
+    try:
+        backend = ensure_recovery_backend(
+            args.backend,
+            dfu_util_executable=args.dfu_tool,
+            auto_install_dfu_util=args.install_dfu_tool,
+        )
+    except Exception as e:
+        logging.error(f"Recovery backend is not available: {e}")
+        return 1
+
+    try:
+        target = _recover_resolve_target(args)
+    except Exception as e:
+        logging.error(e)
+        return 1
+
+    source = args.file or args.source
+    try:
+        dfu_file = resolve_recovery_dfu(source, target)
+    except Exception as e:
+        logging.error(f"Could not resolve recovery DFU firmware: {e}")
+        return 1
+    logging.info(f"Using recovery DFU file: {dfu_file}")
+
+    # Validate before touching any device: DfuSe target name, DFU suffix USB IDs, CRC.
+    try:
+        parse_dfuse_file(dfu_file, expected_target=f"f{target}")
+    except Exception as e:
+        logging.error(f"Recovery DFU file failed validation: {e}")
+        return 1
+
+    confirm_countdown(
+        f"About to ERASE and reflash the U5 firmware (target f{target}) over USB DFU!",
+        args.confirm_timeout,
+    )
+
+    if not _recover_enter_dfu(args, backend):
+        logging.error("DFU device was not detected.")
+        return 1
+
+    try:
+        backend.program_firmware(dfu_file)
+    except Exception as e:
+        logging.error(f"Recovery flashing failed: {e}")
+        return 1
+
+    try:
+        logging.info("Sending explicit DfuSe leave command...")
+        backend.leave_dfu()
+        if getattr(backend, "leave_status_uncertain", False):
+            logging.warning("DfuSe leave request was submitted, but the follow-up status check failed.")
+            print(RECOVERY_RESET_INSTRUCTIONS)
+    except Exception as e:
+        logging.warning(f"Could not leave DFU mode automatically: {e}")
+        if getattr(backend, "supports_reset_fallback", False):
+            try:
+                logging.info("Trying USB reset fallback...")
+                backend.program_firmware(dfu_file, reset=True)
+            except Exception as reset_error:
+                logging.warning(f"USB reset fallback failed: {reset_error}")
+                print(RECOVERY_RESET_INSTRUCTIONS)
+        else:
+            print(RECOVERY_RESET_INSTRUCTIONS)
+
+    if getattr(args, "no_wait_after", False):
+        logging.info("Skipping device reachability check after recovery (--no-wait-after).")
+        print(RECOVERY_RESET_INSTRUCTIONS)
+        return 0
+
+    logging.info("Waiting for the device to come back...")
+    wait_result = wait_for_device(args.device, timeout=args.wait_timeout, verbose=args.verbose)
+    if not wait_result.get("success"):
+        logging.warning(
+            "Recovery flashing finished, but the device did not respond to ping before "
+            f"the {args.wait_timeout}s timeout."
+        )
+        print(RECOVERY_RESET_INSTRUCTIONS)
+        return 0
+    print("Recovery DFU flashing complete.")
+    return 0
+
+
+def run_factory_reset(args):
+    """Factory reset the device via CLI, optionally entering shipping mode.
+
+    Mirrors the manual sequence: sysctl debug 1, factory_reset [-s], confirm with 'y',
+    then wait for the device to reboot.
+    """
+    wait_for_device_maybe(args)
+
+    command = "factory_reset -s" if args.shipping_mode else "factory_reset"
+    confirm_countdown(f"About to run '{command}': the device will be WIPED to factory state!", args.confirm_timeout)
+
+    def _drain(bsb, secs):
+        # eol that never matches => read everything the device sends within `secs`
+        return bsb.read.until_timeout("\x00", timeout=secs)
+
+    try:
+        with BSB_Lite((args.device, args.port)) as bsb:
+            logging.info("Enabling debug CLI commands...")
+            bsb.sysctl_debug(True)
+            logging.info(f"Invoking {command}...")
+            bsb.send(f"{command}\r")
+            output = _drain(bsb, 1).decode("utf-8", errors="replace")
+            if "Factory reset is not allowed" in output:
+                logging.error(output.strip())
+                return 1
+            logging.info("Confirming factory reset...")
+            bsb.send("y\r")
+            _drain(bsb, 3)
+            time.sleep(1)  # let the device act on the confirmation before the socket closes
+    except Exception as e:
+        logging.error(f"Failed to invoke factory reset: {e}")
+        return 1
+
+    if getattr(args, "no_wait_after", False):
+        logging.info("Skipping device reachability check after factory reset (--no-wait-after).")
+        return 0
+
+    logging.info("Waiting for the device to go offline...")
+    wait_for_device(args.device, timeout=args.offline_timeout, verbose=args.verbose, success_ping_as=False)
+    logging.info("Waiting for the device to come back...")
+    wait_for_device(args.device, verbose=args.verbose)
+    print("Factory reset complete.")
+    return 0
+
 
 def run_wait_for_device(args):
     wait_for_device_maybe(args)

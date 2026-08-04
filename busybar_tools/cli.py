@@ -14,6 +14,8 @@ from busybar_tools import (
     run_install,
     run_fetch,
     run_write_recovery,
+    run_recover,
+    run_factory_reset,
     run_storage,
 )
 
@@ -26,7 +28,12 @@ from busybar_tools.config import (
     DEVICE_IP_REF,
     DEVICE_PORT,
     U5_TARGET_HW,
-    UPDATE_DEFAULT_BRANCH
+    UPDATE_DEFAULT_BRANCH,
+    CONFIRM_TIMEOUT_DEFAULT,
+    RECOVERY_SOURCE_DEFAULT,
+    DFU_WAIT_TIMEOUT_DEFAULT,
+    RECOVERY_WAIT_TIMEOUT_DEFAULT,
+    FACTORY_RESET_OFFLINE_TIMEOUT_DEFAULT,
 )
 
 __version__ = "unknown"
@@ -196,7 +203,7 @@ def busybar_main():
         description="Store a firmware bundle into the recovery partition (/bkp) WITHOUT installing it. "
                     "Defaults to --bkp. DANGER: a wrong bundle can brick the device.",
     )
-    p_write_recovery.add_argument("--confirm-timeout", dest="confirm_timeout", metavar="SECONDS", type=int, default=3, help="Countdown (seconds) before overwriting the recovery partition")
+    p_write_recovery.add_argument("--confirm-timeout", dest="confirm_timeout", metavar="SECONDS", type=int, default=CONFIRM_TIMEOUT_DEFAULT, help="Countdown (seconds) before overwriting the recovery partition")
     # The recovery partition expects a bkp-type bundle, so default to --bkp here.
     p_write_recovery.set_defaults(func=run_write_recovery, update_bundle_type="bkp")
 
@@ -209,6 +216,42 @@ def busybar_main():
     )
     p_onboard.add_argument("device_path", help="Path on the device to install from, or the literal 'recovery' for the recovery partition (default: the staged update dir)", type=str, default="", nargs="?")
     p_onboard.set_defaults(func=run_update_local)
+
+    # recover ----------------------------------------------------------------
+    p_recover = subparsers.add_parser(
+        "recover",
+        parents=[device_opts],
+        help="Recover the U5 firmware via USB DFU",
+        description="Erase and reflash the U5 internal flash over USB DFU. DANGER: destructive; "
+                    "the image is validated (DfuSe target, USB IDs, CRC) and a countdown runs before flashing. "
+                    "Requires the [dfu] extra (pyusb) or dfu-util.",
+    )
+    p_recover.add_argument("source", help=f"Update-server tag/branch/channel or URL (default: {RECOVERY_SOURCE_DEFAULT})", type=str, default=RECOVERY_SOURCE_DEFAULT, nargs="?")
+    p_recover.add_argument("-t", "--target", dest="target", type=str, default="auto", help="Target hardware version, or 'auto' to autodetect via the device CLI (no fallback: pass it explicitly if the device is unreachable)")
+    p_recover.add_argument("--file", dest="file", type=str, default=None, help="Use a local .dfu file instead of downloading from the update server")
+    p_recover.add_argument("--backend", dest="backend", choices=["pyusb", "dfu-util", "auto"], default="pyusb", help="USB DFU backend (default: pyusb)")
+    p_recover.add_argument("--dfu-tool", dest="dfu_tool", metavar="PATH", type=str, default=None, help="Path to the dfu-util executable (dfu-util/auto backend)")
+    p_recover.add_argument("--install-dfu-tool", dest="install_dfu_tool", action="store_true", help="Allow installing dfu-util via the OS package manager if it is missing (dfu-util/auto backend)")
+    p_recover.add_argument("--manual-dfu", dest="manual_dfu", action="store_true", help="Skip the CLI command that switches the device to DFU mode; prompt for manual entry instead")
+    p_recover.add_argument("--dfu-timeout", dest="dfu_timeout", metavar="SECONDS", type=int, default=DFU_WAIT_TIMEOUT_DEFAULT, help=f"How long to wait for a DFU USB device (default: {DFU_WAIT_TIMEOUT_DEFAULT})")
+    p_recover.add_argument("--wait-timeout", dest="wait_timeout", metavar="SECONDS", type=int, default=RECOVERY_WAIT_TIMEOUT_DEFAULT, help=f"How long to wait for the device to come back after flashing (default: {RECOVERY_WAIT_TIMEOUT_DEFAULT})")
+    p_recover.add_argument("--no-wait-after", dest="no_wait_after", action="store_true", help="Skip waiting for the device to come back online after flashing")
+    p_recover.add_argument("--confirm-timeout", dest="confirm_timeout", metavar="SECONDS", type=int, default=CONFIRM_TIMEOUT_DEFAULT, help="Countdown (seconds) before erasing and flashing")
+    p_recover.set_defaults(func=run_recover)
+
+    # factory-reset ----------------------------------------------------------
+    p_factory_reset = subparsers.add_parser(
+        "factory-reset",
+        parents=[device_opts, no_wait_opts],
+        help="Factory reset the device",
+        description="Wipe the device to factory state via the CLI (sysctl debug 1, factory_reset, confirm). "
+                    "DANGER: destructive; a countdown runs before the reset is invoked.",
+    )
+    p_factory_reset.add_argument("-s", "--shipping-mode", dest="shipping_mode", action="store_true", help="Enter shipping mode after the reset")
+    p_factory_reset.add_argument("--offline-timeout", dest="offline_timeout", metavar="SECONDS", type=int, default=FACTORY_RESET_OFFLINE_TIMEOUT_DEFAULT, help=f"How long to wait for the device to drop offline (default: {FACTORY_RESET_OFFLINE_TIMEOUT_DEFAULT})")
+    p_factory_reset.add_argument("--no-wait-after", dest="no_wait_after", action="store_true", help="Skip waiting for the device to come back online after the reset")
+    p_factory_reset.add_argument("--confirm-timeout", dest="confirm_timeout", metavar="SECONDS", type=int, default=CONFIRM_TIMEOUT_DEFAULT, help="Countdown (seconds) before invoking the reset")
+    p_factory_reset.set_defaults(func=run_factory_reset)
 
     # wait -------------------------------------------------------------------
     p_run_wait = subparsers.add_parser(

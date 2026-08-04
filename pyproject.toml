@@ -19,6 +19,9 @@ dependencies = []
 [project.optional-dependencies]
 test = ["pytest>=7"]
 completion = ["argcomplete>=3"]
+# USB DFU recovery (`busybar recover` with the default pyusb backend);
+# the core package stays dependency-free.
+dfu = ["pyusb>=1.2", "libusb-package>=1.0"]
 
 [project.scripts]
 busybar = "busybar_tools.cli:main"

@@ -136,7 +136,15 @@ def wait_for_device(
         print("")  # move to next line after loop
     return data
 
-def file_download(file_url, file_name, dir, progress=False):
+def confirm_countdown(action, seconds):
+    """Announce a destructive action and give the user a Ctrl+C window before it runs."""
+    logging.warning(f"Danger! {action}")
+    for i in range(seconds):
+        logging.warning(f"You have {seconds - i} seconds to Cancel (Ctrl+C)...")
+        time.sleep(1)
+
+
+def file_download(file_url, file_name, dir, progress=False, timeout=FETCH_TIMEOUT_DEFAULT):
     logging.info(f"Downloading {file_url} to {dir} ...")
     os.makedirs(dir, exist_ok=True)
 
@@ -156,7 +164,7 @@ def file_download(file_url, file_name, dir, progress=False):
 
     # Stream with a custom User-Agent (urlretrieve cannot set headers without a global opener;
     # the update mirror's CDN 403s the default urllib UA).
-    with request.urlopen(_make_request(file_url)) as response:
+    with request.urlopen(_make_request(file_url), timeout=timeout) as response:
         total_size = int(response.headers.get("Content-Length", 0) or 0)
         downloaded = 0
         with open(file_path, "wb") as out:

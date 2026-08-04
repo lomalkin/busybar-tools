@@ -51,6 +51,8 @@ After the first `pipx ensurepath` you may need to open a new terminal.
       fetch            Download (and optionally unpack) a firmware bundle locally
       write-recovery   Write a firmware bundle into the recovery partition (no install)
       install-onboard  Install firmware already staged on the device
+      recover          Recover the U5 firmware via USB DFU
+      factory-reset    Factory reset the device
       wait             Wait for the device to be reachable
       clean            Clean the package's tmp/cache directory
 
@@ -61,8 +63,9 @@ Options go **after** the command (e.g. `busybar install -t 21 0.10.2`). Run `bus
 for the full list.
 
 Device commands (`auto-install`, `cli`, `storage`, `install`, `write-recovery`, `install-onboard`,
-`wait`) accept `-d/--device` (IP; `r`/`ref` = reference device) and `-p/--port` (default 23). All of
-them except `wait` also accept `--no-wait` to skip the pre-operation reachability check.
+`recover`, `factory-reset`, `wait`) accept `-d/--device` (IP; `r`/`ref` = reference device) and
+`-p/--port` (default 23). All of them except `recover` and `wait` also accept `--no-wait` to skip the
+pre-operation reachability check.
 
 ### `busybar auto-install`
 
@@ -157,6 +160,46 @@ Install firmware already staged on the device (no download/upload).
 - `device_path` — on-device path to install from, or the literal `recovery` for the recovery
   partition (default: the staged update dir).
 
+### `busybar recover`
+
+Recover the U5 firmware over USB DFU — for devices that cannot be updated normally (broken or
+missing firmware). **DANGER**: erases and reflashes the U5 internal flash; a countdown runs before
+flashing, and the image is validated first (DfuSe target name, DFU suffix USB IDs, CRC).
+
+    busybar recover [-t auto|TARGET] [--file local.dfu] [--backend pyusb|dfu-util|auto]
+                    [--dfu-tool PATH] [--install-dfu-tool] [--manual-dfu]
+                    [--dfu-timeout SECONDS] [--wait-timeout SECONDS] [--no-wait-after]
+                    [--confirm-timeout SECONDS] [-d DEVICE] [-p PORT] [source]
+
+- `source` — update-server tag/branch, release channel (`dev`, `rc`, `release`) or URL
+  (default: `dev`).
+- `-t`, `--target` — hardware target, or `auto` to read it from the device CLI. There is **no
+  silent fallback**: if the device CLI is unreachable (the usual recovery situation), pass the
+  target explicitly.
+- `--file` — use a local `.dfu` file instead of downloading one.
+- `--backend` — `pyusb` (default; needs the `[dfu]` extra: `pipx install "busybar-tools[dfu]"`),
+  `dfu-util` (external binary), or `auto`.
+- `--install-dfu-tool` — allow installing dfu-util via the OS package manager if it is missing
+  (dfu-util backend only; off by default).
+- `--manual-dfu` — skip the CLI command that switches the device to DFU mode and prompt for
+  manual entry instead.
+
+The command asks the running firmware to reboot into DFU mode; if that fails, it prints manual
+DFU-entry instructions. After flashing it sends an explicit DfuSe leave request. Some devices may
+still need a manual reboot: hold Start and Back for about 3 seconds, then release and wait.
+
+### `busybar factory-reset`
+
+Wipe the device to factory state via the CLI. **DANGER**: destructive; a countdown runs before the
+reset is invoked. The factory image is the one stored in the recovery partition (see
+`write-recovery`).
+
+    busybar factory-reset [-s] [--offline-timeout SECONDS] [--no-wait-after]
+                          [--confirm-timeout SECONDS] [--no-wait] [-d DEVICE] [-p PORT]
+
+- `-s`, `--shipping-mode` — enter shipping mode after the reset.
+- `--no-wait-after` — return right after invoking the reset instead of waiting for the reboot.
+
 ### `busybar wait` / `busybar clean`
 
 - `busybar wait` — wait until the device is reachable (useful for scripting).
@@ -217,12 +260,17 @@ To run a subset (e.g. while iterating, to avoid the full flash run) use the stan
 # Changelog
 
 ## Upcoming features plan
-- Easy recovery of Busybar via DFU from any possible broken state
-- Factory reset?
 - ...create an [issue](https://github.com/lomalkin/busybar-tools/issues) for any feature requests or bug reports!
 
 
 ## Upcoming
+- New `busybar recover` command — recover the U5 firmware via USB DFU from a broken state.
+  Two backends: `pyusb` (default; install the `[dfu]` extra) and `dfu-util`. The image is
+  validated before flashing (DfuSe target name, DFU suffix USB IDs, CRC), a countdown runs
+  before the erase, and the STM32 DFU device must be the only one connected. The core package
+  stays dependency-free — USB support lives in the optional `busybar-tools[dfu]` extra.
+- New `busybar factory-reset` command — factory reset via the device CLI (with a countdown),
+  optionally entering shipping mode (`-s`), then waits for the device to reboot.
 - Optional shell tab-completion for bash/zsh via [argcomplete](https://pypi.org/project/argcomplete/).
   Install the extra (`busybar-tools[completion]`) and register it in your shell — see
   [Shell completion](#shell-completion-optional).
