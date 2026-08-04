@@ -82,8 +82,10 @@ class RecoveryOptions:
     dfu_tool: Optional[str] = None
     install_dfu_tool: bool = True
     dfu_timeout: int = 30
+    flash_timeout: int = 180
     wait_timeout: int = 120
     wait_after: bool = True
+    assume_yes: bool = False
     verbose: bool = True
 
 

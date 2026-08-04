@@ -1,58 +1,102 @@
 import logging
 import os
 import platform
+import re
 import shutil
 import subprocess
 import tempfile
 
 from busybar_tools.dfu.constants import DFU_PRODUCT_ID, DFU_VENDOR_ID
+from busybar_tools.dfu.device import DfuDevice
 
 
 class DfuUtilBackend:
     """Small wrapper around dfu-util."""
 
     UTIL_BIN_NAME = "dfu-util"
-    supports_reset_fallback = True
-
     def __init__(self, executable=None):
         self.executable = executable or shutil.which(self.UTIL_BIN_NAME)
         self.leave_status_uncertain = False
+        self.selected_device = None
 
     def is_available(self):
         return bool(self.executable)
 
-    def find_devices(self):
+    def list_devices(self):
         if not self.is_available():
-            return False
+            return []
         try:
-            result = subprocess.check_output([self.executable, "--list"], stderr=subprocess.STDOUT)
+            result = subprocess.check_output(
+                [self.executable, "--list"],
+                stderr=subprocess.STDOUT,
+                timeout=5,
+            )
         except subprocess.CalledProcessError as e:
             raise RuntimeError(
                 f"Error executing {self.UTIL_BIN_NAME}: {e.output.decode(errors='replace')}"
             ) from e
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(f"{self.UTIL_BIN_NAME} --list timed out") from e
         except OSError as e:
             raise RuntimeError(f"Error executing {self.UTIL_BIN_NAME}: {e}") from e
-        text = result.decode(errors="replace").lower()
-        return "found dfu" in text or f"{DFU_VENDOR_ID:04x}:{DFU_PRODUCT_ID:04x}" in text
+        devices = {}
+        pattern = re.compile(r"Found DFU:\s*\[([0-9a-f]{4}):([0-9a-f]{4})\](.*)", re.IGNORECASE)
+        attribute = re.compile(r'(\w+)="([^"]*)"')
+        for line in result.decode(errors="replace").splitlines():
+            match = pattern.search(line)
+            if not match:
+                continue
+            vendor_id, product_id = int(match.group(1), 16), int(match.group(2), 16)
+            if vendor_id != DFU_VENDOR_ID or product_id != DFU_PRODUCT_ID:
+                continue
+            attrs = dict(attribute.findall(match.group(3)))
+            serial = attrs.get("serial") or None
+            path = attrs.get("path") or None
+            key = f"serial:{serial}" if serial else f"path:{path}"
+            devices.setdefault(key, DfuDevice(
+                key=key,
+                vendor_id=vendor_id,
+                product_id=product_id,
+                path=path,
+                serial=serial,
+                product=attrs.get("name") or None,
+            ))
+        return list(devices.values())
 
-    def program_firmware(self, fw_file, reset=False):
+    def select_device(self, device):
+        self.selected_device = device
+
+    def _selector_args(self):
+        args = ["-d", f"{DFU_VENDOR_ID:04x}:{DFU_PRODUCT_ID:04x}"]
+        if self.selected_device is None:
+            return args
+        if self.selected_device.serial:
+            return args + ["-S", self.selected_device.serial]
+        if self.selected_device.path:
+            return args + ["-p", self.selected_device.path]
+        return args
+
+    def program_firmware(self, fw_file, timeout=180):
         if not self.is_available():
             raise RuntimeError(
                 "dfu-util was not found. Install dfu-util or provide it on PATH. "
                 "Alternatively, use the default PyUSB backend."
             )
-        cmd = [self.executable, "-a", "0", "-D", fw_file]
-        if reset:
-            cmd.append("-R")
+        cmd = [self.executable] + self._selector_args() + ["-a", "0", "-D", fw_file]
         logging.info(f"Flashing DFU firmware: {' '.join(cmd)}")
         try:
-            subprocess.check_call(cmd)
+            subprocess.run(cmd, check=True, timeout=timeout)
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"dfu-util failed with exit code {e.returncode}") from e
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(f"dfu-util timed out after {timeout}s") from e
 
-    def leave_dfu(self, address="0x080fffff"):
+    def leave_dfu(self, address="0x08000000", timeout=15):
         if not self.is_available():
             raise RuntimeError("dfu-util was not found")
+
+        if isinstance(address, int):
+            address = f"0x{address:08x}"
 
         self.leave_status_uncertain = False
         tmp_path = None
@@ -60,9 +104,17 @@ class DfuUtilBackend:
             with tempfile.NamedTemporaryFile(prefix="busybar_dfu_leave_", suffix=".bin", delete=False) as f:
                 tmp_path = f.name
 
-            cmd = [self.executable, "-a", "0", "-s", f"{address}:leave", "-D", tmp_path]
+            cmd = [self.executable] + self._selector_args() + [
+                "-a", "0", "-s", f"{address}:leave", "-D", tmp_path,
+            ]
             logging.info(f"Leaving DFU mode: {' '.join(cmd)}")
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True,
+                timeout=timeout,
+            )
             if result.stdout:
                 print(result.stdout, end="")
             if result.returncode == 0:

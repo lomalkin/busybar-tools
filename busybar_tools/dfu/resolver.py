@@ -3,6 +3,7 @@ import logging
 import os
 
 from busybar_tools.cache import url_cache_key, workdir
+from busybar_tools.config import UPDATE_DIRECTORY_URL
 from busybar_tools.downloads import download_file, fetch_text
 from busybar_tools.firmware.index import index_filename, normalize_update_url, parse_index, sha256_file
 
@@ -45,14 +46,9 @@ def _download_index_match(source_url, target, work_dir):
 
 
 def _download_directory_json_match(source, target, work_dir):
-    if source.startswith("http://") or source.startswith("https://"):
-        directory_url = source
-    else:
-        directory_url = "https://update.flipperzero.one/busybar-firmware/directory.json"
-
-    data = fetch_text(directory_url, timeout=10)
+    data = fetch_text(UPDATE_DIRECTORY_URL, timeout=10)
     if not data:
-        raise RuntimeError(f"Failed to fetch firmware directory {directory_url}")
+        raise RuntimeError(f"Failed to fetch firmware directory {UPDATE_DIRECTORY_URL}")
 
     directory = json.loads(data)
     channel_aliases = {
@@ -62,7 +58,11 @@ def _download_directory_json_match(source, target, work_dir):
         "release-candidate": "release-candidate",
         "release": "release",
     }
-    channel_id = channel_aliases.get(source, "release")
+    channel_id = channel_aliases.get(source)
+    if channel_id is None:
+        raise RuntimeError(
+            "Firmware directory fallback is available only for named channels: dev, rc, release"
+        )
     channel = next((c for c in directory.get("channels", []) if c.get("id") == channel_id), None)
     if not channel:
         raise RuntimeError(f"Release channel '{channel_id}' not found in firmware directory")

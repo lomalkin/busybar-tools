@@ -1,8 +1,9 @@
 import os
 import struct
+import zlib
 
-from busybar_tools import dfu
 import busybar_tools.dfu.backends.dfu_util as dfu_util
+from busybar_tools import dfu
 
 
 def _make_dfuse(target_name="BUSY-f22", address=0x08012000, payload=b"abc"):
@@ -17,6 +18,12 @@ def _make_dfuse(target_name="BUSY-f22", address=0x08012000, payload=b"abc"):
         + struct.pack("<I", 1)
     )
     return prefix + target_prefix + struct.pack("<II", address, len(payload)) + payload
+
+
+def _with_dfu_suffix(data):
+    suffix = struct.pack("<HHHH3sB", 0, 0xDF11, 0x0483, 0x011A, b"UFD", 16)
+    crc = zlib.crc32(data + suffix) ^ 0xFFFFFFFF
+    return data + suffix + struct.pack("<I", crc)
 
 
 def test_resolve_recovery_dfu_accepts_local_dfu(tmp_path):
@@ -47,28 +54,28 @@ def test_parse_dfuse_file(tmp_path):
     assert image.data == b"firmware"
 
 
+def test_validate_recovery_image_accepts_valid_target_crc_and_flash_range(tmp_path):
+    f = tmp_path / "recovery.dfu"
+    f.write_bytes(_with_dfu_suffix(_make_dfuse(target_name="BUSY-f22", payload=b"firmware")))
+
+    image = dfu.validate_recovery_image(str(f), 22)
+
+    assert image.crc32_check is True
+
+
 def test_dfu_util_program_command(monkeypatch, tmp_path):
     fw = tmp_path / "recovery.dfu"
     fw.write_bytes(b"dfu")
     calls = []
-    monkeypatch.setattr(dfu_util.subprocess, "check_call", lambda cmd: calls.append(cmd))
+    monkeypatch.setattr(dfu_util.subprocess, "run", lambda cmd, **kwargs: calls.append((cmd, kwargs)))
 
     backend = dfu.DfuUtilBackend(executable=os.fspath(tmp_path / "dfu-util"))
     backend.program_firmware(str(fw))
 
-    assert calls == [[backend.executable, "-a", "0", "-D", str(fw)]]
-
-
-def test_dfu_util_program_command_can_reset(monkeypatch, tmp_path):
-    fw = tmp_path / "recovery.dfu"
-    fw.write_bytes(b"dfu")
-    calls = []
-    monkeypatch.setattr(dfu_util.subprocess, "check_call", lambda cmd: calls.append(cmd))
-
-    backend = dfu.DfuUtilBackend(executable=os.fspath(tmp_path / "dfu-util"))
-    backend.program_firmware(str(fw), reset=True)
-
-    assert calls == [[backend.executable, "-a", "0", "-D", str(fw), "-R"]]
+    assert calls == [([backend.executable, "-d", "0483:df11", "-a", "0", "-D", str(fw)], {
+        "check": True,
+        "timeout": 180,
+    })]
 
 
 def test_dfu_util_leave_command(monkeypatch, tmp_path):
@@ -90,9 +97,26 @@ def test_dfu_util_leave_command(monkeypatch, tmp_path):
     backend.leave_dfu()
 
     assert len(calls) == 1
-    assert calls[0][:5] == [backend.executable, "-a", "0", "-s", "0x080fffff:leave"]
-    assert calls[0][5] == "-D"
-    assert removed == [calls[0][6]]
+    assert calls[0][:7] == [backend.executable, "-d", "0483:df11", "-a", "0", "-s", "0x08000000:leave"]
+    assert calls[0][7] == "-D"
+    assert removed == [calls[0][8]]
+
+
+def test_dfu_util_lists_and_selects_one_physical_device(monkeypatch, tmp_path):
+    output = (
+        'Found DFU: [0483:df11] ver=0200, devnum=5, cfg=1, intf=0, path="1-2", alt=0, '
+        'name="Internal Flash", serial="ABC"\n'
+        'Found DFU: [0483:df11] ver=0200, devnum=5, cfg=1, intf=0, path="1-2", alt=1, '
+        'name="Option Bytes", serial="ABC"\n'
+    ).encode()
+    monkeypatch.setattr(dfu_util.subprocess, "check_output", lambda *args, **kwargs: output)
+
+    backend = dfu.DfuUtilBackend(executable=os.fspath(tmp_path / "dfu-util"))
+    devices = backend.list_devices()
+    backend.select_device(devices[0])
+
+    assert len(devices) == 1
+    assert backend._selector_args() == ["-d", "0483:df11", "-S", "ABC"]
 
 
 def test_dfu_util_leave_accepts_get_status_failure_after_submit(monkeypatch, tmp_path):

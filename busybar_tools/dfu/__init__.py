@@ -11,8 +11,13 @@ from busybar_tools.dfu.constants import (
     DFU_VENDOR_ID,
     RECOVERY_RESET_INSTRUCTIONS,
 )
-from busybar_tools.dfu.parser import DfuSeImage, parse_dfuse_file
-from busybar_tools.dfu.recovery import ensure_recovery_backend, enter_dfu_via_cli, wait_for_dfu_device
+from busybar_tools.dfu.device import DfuDevice
+from busybar_tools.dfu.parser import DfuSeImage, parse_dfuse_file, validate_recovery_image
+from busybar_tools.dfu.recovery import (
+    ensure_recovery_backend,
+    enter_dfu_via_cli,
+    wait_for_dfu_devices,
+)
 from busybar_tools.dfu.resolver import resolve_recovery_dfu
 
 __all__ = [
@@ -21,6 +26,7 @@ __all__ = [
     "DFU_VENDOR_ID",
     "RECOVERY_RESET_INSTRUCTIONS",
     "DfuSeImage",
+    "DfuDevice",
     "DfuUtilBackend",
     "PyUsbDfuSeBackend",
     "dfu_util_install_hint",
@@ -29,6 +35,7 @@ __all__ = [
     "enter_dfu_via_cli",
     "install_dfu_util",
     "parse_dfuse_file",
+    "validate_recovery_image",
     "resolve_recovery_dfu",
-    "wait_for_dfu_device",
+    "wait_for_dfu_devices",
 ]

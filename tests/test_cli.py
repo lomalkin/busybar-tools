@@ -25,12 +25,12 @@ def test_source_is_required(monkeypatch, capsys, command):
     assert "Traceback" not in error
 
 
-def test_unknown_command_prints_root_help(monkeypatch, capsys):
+def test_unknown_command_prints_parser_help_without_traceback(monkeypatch, capsys):
     assert run_cli(monkeypatch, ["does-not-exist"]) == 2
     error = capsys.readouterr().err
     assert "No such command 'does-not-exist'" in error
     assert "Usage: busybar [OPTIONS] COMMAND [ARGS]..." in error
-    assert "auto-install" in error
+    assert "Usage: busybar" in error
     assert "Traceback" not in error
 
 
@@ -126,7 +126,9 @@ def test_recover_defaults(monkeypatch):
     assert options.backend == "pyusb"
     assert options.manual_dfu is False
     assert options.install_dfu_tool is True
+    assert options.flash_timeout == 180
     assert options.wait_timeout == 120
+    assert options.assume_yes is False
 
 
 def test_report_options(monkeypatch):

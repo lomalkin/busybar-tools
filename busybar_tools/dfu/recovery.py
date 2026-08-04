@@ -26,13 +26,14 @@ def ensure_recovery_backend(name="pyusb", dfu_util_executable=None, auto_install
     raise RuntimeError(f"Unknown recovery backend '{name}'. Expected: pyusb, dfu-util, auto.")
 
 
-def wait_for_dfu_device(backend, timeout=30, delay=1):
-    deadline = time.time() + timeout
-    while time.time() <= deadline:
-        if backend.find_devices():
-            return True
+def wait_for_dfu_devices(backend, timeout=30, delay=1):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() <= deadline:
+        devices = backend.list_devices()
+        if devices:
+            return devices
         time.sleep(delay)
-    return False
+    return []
 
 
 def enter_dfu_via_cli(endpoint: DeviceEndpoint):

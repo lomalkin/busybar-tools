@@ -96,7 +96,10 @@ def send(
 
 
 @app.command("list", help="Recursively list files and directories")
-def list_files(ctx: typer.Context, device_path: str = "/"):
+def list_files(
+    ctx: typer.Context,
+    device_path: str = typer.Argument("/", help="Device directory to list"),
+):
     logging.debug('Listing "%s"', device_path)
     for entry in _service(ctx).list(device_path):
         typer.echo(entry)

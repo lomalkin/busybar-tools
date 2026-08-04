@@ -2,9 +2,9 @@ import json
 import logging
 
 from busybar_tools.api import BusybarApiClient
+from busybar_tools.commands.storage import upload_bundle
 from busybar_tools.config import DIR_BSB_RECOVERY, DIR_BSB_TMP_UPDATE
 from busybar_tools.device import enable_debug, ensure_device_reachable, invoke_update
-from busybar_tools.device.update_storage import upload_bundle
 from busybar_tools.errors import FirmwareError
 from busybar_tools.firmware import resolve_source, unpack_bundle
 from busybar_tools.options import (

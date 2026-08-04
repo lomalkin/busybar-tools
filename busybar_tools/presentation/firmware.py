@@ -45,15 +45,17 @@ def recover(
     source: str = typer.Argument("release", help="Update-server tag/branch or URL (default: release)"),
     device: str = typer.Option(DEVICE_IP, "-d", "--device", help=f"Device IP (or 'r'/'ref'), default: {DEVICE_IP}"),
     port: int = typer.Option(DEVICE_PORT, "-p", "--port", help=f"Device port, default: {DEVICE_PORT}"),
-    target: str = typer.Option("auto", "-t", "--target", help=f"Target hardware version, or 'auto' (fallback: {U5_TARGET_HW})"),
+    target: str = typer.Option("auto", "-t", "--target", help="Target hardware version; auto uses device_info or a local DfuSe image"),
     file: Optional[str] = typer.Option(None, "--file", help="Use a local .dfu file instead of downloading from the update server"),
     backend: str = typer.Option("pyusb", "--backend", help="USB DFU backend: pyusb, dfu-util, or auto"),
     manual_dfu: bool = typer.Option(False, "--manual-dfu", help="Prompt for manual DFU mode instead of using the device CLI"),
     dfu_tool: Optional[str] = typer.Option(None, "--dfu-tool", help="Path to dfu-util executable when using dfu-util/auto backend"),
     no_install_dfu_tool: bool = typer.Option(False, "--no-install-dfu-tool", help="Fail instead of installing dfu-util for the dfu-util backend"),
     dfu_timeout: int = typer.Option(30, "--dfu-timeout", help="How long to wait for a DFU USB device"),
+    flash_timeout: int = typer.Option(180, "--flash-timeout", help="Maximum time for erase and write"),
     wait_timeout: int = typer.Option(120, "--wait-timeout", help="How long to wait for the device to come back after flashing"),
     no_wait_after: bool = typer.Option(False, "--no-wait-after", help="Skip waiting for the device to come back online after flashing"),
+    yes: bool = typer.Option(False, "-y", "--yes", help="Flash without the interactive device/image confirmation"),
 ):
     if backend not in ("pyusb", "dfu-util", "auto"):
         raise typer.BadParameter("--backend must be one of: pyusb, dfu-util, auto")
@@ -61,7 +63,8 @@ def recover(
         endpoint=endpoint(device, port), source=source, target=target, file=file,
         backend=backend, manual_dfu=manual_dfu, dfu_tool=dfu_tool,
         install_dfu_tool=not no_install_dfu_tool, dfu_timeout=dfu_timeout,
-        wait_timeout=wait_timeout, wait_after=not no_wait_after,
+        flash_timeout=flash_timeout, wait_timeout=wait_timeout,
+        wait_after=not no_wait_after, assume_yes=yes,
     )))
 
 
@@ -132,4 +135,3 @@ def install_onboard(
     return finish(run_update_local(InstallOnboardOptions(
         endpoint=endpoint(device, port), device_path=device_path, wait_before=not no_wait,
     )))
-

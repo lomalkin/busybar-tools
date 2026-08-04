@@ -6,6 +6,7 @@ import hashlib
 import logging
 import math
 import os
+import posixpath
 import sys
 import time
 
@@ -425,3 +426,70 @@ class DeviceStorage:
         self.read.until(self.CLI_PROMPT)
         self._check_no_error(digest, filename)
         return digest.decode("ascii")
+
+    def make_path(self, device_dir_path: str) -> None:
+        """Create a device directory and any missing parents."""
+        normalized = posixpath.normpath(device_dir_path)
+        if normalized in ("", ".", "/"):
+            return
+        current = ""
+        for part in normalized.split("/"):
+            if not part:
+                continue
+            current += "/" + part
+            if not self.exist_dir(current):
+                logging.debug('Directory "%s" does not exist; creating it', current)
+                self.mkdir(current)
+
+    def recursive_send(self, device_path: str, local_path: str, force: bool = False) -> None:
+        """Send a local file or directory tree to the device."""
+        if not os.path.exists(local_path):
+            raise StorageProtocolError(f'"{local_path}" does not exist')
+
+        if not os.path.isdir(local_path):
+            self.make_path(posixpath.dirname(device_path))
+            self._send_if_changed(device_path, local_path, force)
+            return
+
+        self.make_path(device_path)
+        for directory_path, directory_names, filenames in os.walk(local_path):
+            directory_names.sort()
+            filenames.sort()
+            relative_path = os.path.relpath(directory_path, local_path)
+            for directory_name in directory_names:
+                target_dir = os.path.join(device_path, relative_path, directory_name)
+                self.make_path(os.path.normpath(target_dir).replace(os.sep, "/"))
+            for filename in filenames:
+                target_file = os.path.join(device_path, relative_path, filename)
+                target_file = os.path.normpath(target_file).replace(os.sep, "/")
+                local_file = os.path.normpath(os.path.join(directory_path, filename))
+                self._send_if_changed(target_file, local_file, force)
+
+    def _send_if_changed(self, device_path: str, local_path: str, force: bool) -> None:
+        upload = force or not self.exist_file(device_path)
+        if not upload:
+            upload = self.hash_local(local_path) != self.hash_device(device_path)
+        if upload:
+            logging.info('Sending "%s" to "%s"', local_path, device_path)
+            self.send_file(local_path, device_path)
+
+    def recursive_receive(self, device_path: str, local_path: str) -> None:
+        """Receive a device file or directory tree into local storage."""
+        if not self.exist_dir(device_path):
+            logging.info('Receiving "%s" to "%s"', device_path, local_path)
+            self.receive_file(device_path, local_path)
+            return
+
+        os.makedirs(local_path, exist_ok=True)
+        for directory_path, directory_names, filenames in self.walk(device_path):
+            directory_names.sort()
+            filenames.sort()
+            relative_path = os.path.relpath(directory_path, device_path)
+            for directory_name in directory_names:
+                local_dir = os.path.normpath(os.path.join(local_path, relative_path, directory_name))
+                os.makedirs(local_dir, exist_ok=True)
+            for filename in filenames:
+                local_file = os.path.normpath(os.path.join(local_path, relative_path, filename))
+                device_file = os.path.normpath(os.path.join(directory_path, filename)).replace(os.sep, "/")
+                logging.info('Receiving "%s" to "%s"', device_file, local_file)
+                self.receive_file(device_file, local_file)

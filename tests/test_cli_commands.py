@@ -8,6 +8,7 @@ import io
 import busybar_tools.commands.cli_terminal as cli_cmd
 import busybar_tools.bsb_term as bsb_term
 from busybar_tools.bsb_term import _prelude_bytes, _inject_prelude
+from busybar_tools.errors import DeviceError
 from busybar_tools.options import CliOptions, DeviceEndpoint
 
 
@@ -161,13 +162,14 @@ def test_run_cli_batch_sends_commands_in_order(monkeypatch, capsys):
     assert "out:uptime" in out and "out:device_info" in out
 
 
-def test_run_cli_batch_returns_1_on_failure(monkeypatch):
+def test_run_cli_batch_raises_device_error_on_failure(monkeypatch):
     class Boom:
         def __init__(self, *a, **k):
             raise OSError("no device")
 
     monkeypatch.setattr(cli_cmd, "BusybarCli", Boom)
-    assert cli_cmd._run_cli_batch(_args(), ["uptime"]) == 1
+    with pytest.raises(DeviceError, match="CLI batch failed: no device"):
+        cli_cmd._run_cli_batch(_args(), ["uptime"])
 
 
 # --- Typer parsing ----------------------------------------------------------
