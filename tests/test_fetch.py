@@ -1,14 +1,15 @@
 """Unit tests for run_fetch with local sources (no network/device)."""
 import os
-import types
 
 import busybar_tools as bt
 
 
 def _args(**kw):
-    base = dict(target=22, signed=True, update_bundle_type="update", unpack=False, output=None)
+    base = dict(source="dev", target=22, signed=True, bundle_type="update", unpack=False, output=None)
     base.update(kw)
-    return types.SimpleNamespace(**base)
+    unpack = base.pop("unpack")
+    output = base.pop("output")
+    return bt.FetchOptions(bt.FirmwareSelection(**base), unpack=unpack, output=output)
 
 
 def test_local_file_no_output_prints_cache_path(tmp_path, capsys):

@@ -1,14 +1,15 @@
 """Flash finalizer (runs LAST): factory reset rolls out the image written to /bkp.
 
 write-recovery (earlier flash test) writes WRITE_RECOVERY_VERSION into the recovery partition;
-this test triggers a factory reset, which boots that image — leaving the stand in a known state.
+this test triggers a factory reset, which boots that image - leaving the stand in a known state.
 Run with: pytest --run-flash  (slow: reboot, minutes).
 """
 import pytest
 
 import busybar_tools as bt
+from busybar_tools.device import DETECT_FIELDS, VERSION_FIELDS
 
-_READY = bt._VERSION_FIELDS + bt._DETECT_FIELDS
+_READY = VERSION_FIELDS + DETECT_FIELDS
 
 
 @pytest.mark.flash_final

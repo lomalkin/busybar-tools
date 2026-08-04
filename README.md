@@ -14,7 +14,9 @@ Available as a Python package on [PyPI](https://pypi.org/project/busybar-tools/)
 
 ## Installation and Upgrade
 
-The tool is installed with [pipx](https://pipx.pypa.io/). Pick your OS:
+Python 3.10 or newer is required. The tool is installed with
+[pipx](https://pipx.pypa.io/); pipx installs Typer, PyUSB, and the bundled libusb provider automatically.
+Pick your OS:
 
 **Linux (Ubuntu/Debian)**
 
@@ -38,6 +40,9 @@ After the first `pipx ensurepath` you may need to open a new terminal.
 
 **Upgrade** (any OS): `pipx upgrade busybar-tools`
 
+**Install this checkout locally:** run `pipx install --force .` from the repository root. Run the
+same command after dependency changes so pipx rebuilds the isolated environment.
+
 
 ## Usage
 
@@ -46,11 +51,14 @@ After the first `pipx ensurepath` you may need to open a new terminal.
     commands:
       auto-install     Autodetect target & signing, then install — recommended for most users
       cli              CLI terminal session, or run commands non-interactively
-      storage          Run the embedded storage.py utility on the device
+      recover          Recover STM32U5 firmware via USB DFU
+      report           Collect a diagnostic report archive from the device
+      storage          Run storage operations on the device
       install          Install firmware from an explicit source (low-level)
       fetch            Download (and optionally unpack) a firmware bundle locally
       write-recovery   Write a firmware bundle into the recovery partition (no install)
       install-onboard  Install firmware already staged on the device
+      factory-reset    Factory reset the device
       wait             Wait for the device to be reachable
       clean            Clean the package's tmp/cache directory
 
@@ -60,9 +68,10 @@ After the first `pipx ensurepath` you may need to open a new terminal.
 Options go **after** the command (e.g. `busybar install -t 21 0.10.2`). Run `busybar <command> --help`
 for the full list.
 
-Device commands (`auto-install`, `cli`, `storage`, `install`, `write-recovery`, `install-onboard`,
-`wait`) accept `-d/--device` (IP; `r`/`ref` = reference device) and `-p/--port` (default 23). All of
-them except `wait` also accept `--no-wait` to skip the pre-operation reachability check.
+Device commands (`auto-install`, `cli`, `recover`, `report`, `storage`, `install`, `write-recovery`, `install-onboard`, `factory-reset`,
+`wait`) accept `-d/--device` (IP; `r`/`ref` = reference device) and `-p/--port` (default 23). Device
+commands except `recover` and `wait` also accept `--no-wait` to skip the pre-operation reachability
+check; `recover` has its own `--no-wait-after` option.
 
 ### `busybar auto-install`
 
@@ -72,13 +81,13 @@ bundle, installs it, then waits for the reboot and reports the version change.
     busybar auto-install [--via-storage | --via-http] [--no-wait] [--no-wait-after]
                          [-d DEVICE] [-p PORT] [source]
 
-- `source` — update-server tag/branch or URL (default: `dev`). Local files/dirs are not accepted here
-  (the bundle is chosen automatically for the detected target/signing — use `install` for those).
-- `--no-wait-after` — return right after install instead of waiting for the reboot / version check.
+- `source` - update-server tag/branch or URL (default: `release`). Local files/dirs are not accepted here
+  (the bundle is chosen automatically for the detected target/signing - use `install` for those).
+- `--no-wait-after` - return right after install instead of waiting for the reboot / version check.
 
 Examples:
-- `busybar auto-install` — install the latest `dev` firmware for this device.
-- `busybar auto-install 0.10.2` — install a specific tag.
+- `busybar auto-install` - install the latest `release` firmware for this device.
+- `busybar auto-install 0.10.2` - install a specific tag.
 
 ### `busybar cli`
 
@@ -91,12 +100,63 @@ Interactive session, or run commands non-interactively.
 - `busybar cli -i -- device_info` — run the command, then stay in the session (same connection).
 - `echo device_info | busybar cli` — run commands from stdin (one per line) and exit.
 
+### `busybar recover`
+
+Recover STM32U5 firmware over USB DFU. By default the command uses a Python USB DfuSe backend, similar
+to the web recovery utility: it parses the `.dfu`, writes STM32 internal flash directly through USB, and
+sends the DfuSe leave request without invoking `dfu-util`. The package depends on PyUSB plus a bundled
+libusb provider where available. A `dfu-util` backend is still available for comparison/fallback; when
+that backend is selected, the command tries to install `dfu-util` automatically if it is not already
+available: Scoop/WinGet/Chocolatey on Windows, Homebrew/MacPorts on macOS, and common package managers
+on Linux.
+
+    busybar recover [-t auto|TARGET] [--file local.dfu] [--manual-dfu]
+                    [--backend pyusb|dfu-util|auto]
+                    [--dfu-tool PATH] [--no-install-dfu-tool]
+                    [--dfu-timeout SECONDS] [--flash-timeout SECONDS]
+                    [--wait-timeout SECONDS] [--no-wait-after] [--yes] [source]
+
+- `source` — update-server tag/branch or URL (default: `release`).
+- `--file` — use a local `.dfu` file instead of downloading one.
+- `--backend` — choose `pyusb` (default), `dfu-util`, or `auto`.
+- `--manual-dfu` — skip the CLI command that asks the device to boot into DFU mode.
+- `--no-install-dfu-tool` — fail if `dfu-util` is missing instead of trying to install it when using the `dfu-util` backend.
+- `--dfu-timeout SECONDS` — limit how long to wait for the USB DFU device to appear.
+- `--flash-timeout SECONDS` — limit the complete erase/write operation (default: 180 seconds).
+- `--wait-timeout SECONDS` — limit how long to wait for the device to come back after flashing.
+- `--yes`, `-y` — skip the typed target confirmation for explicit automation.
+
+If automatic DFU entry fails, the command asks you to put BUSY Bar into DFU mode manually.
+Before erasing, it validates the DfuSe target, CRC, and STM32U5 flash range, requires exactly one
+`0483:df11` USB device, prints the selected device and image, and asks you to type the target (`f21`,
+`f22`, etc.). USB DFU detection happens before any IP request. If the device is already in DFU mode,
+the target is read from a local `.dfu` image or must be passed with `--target`; STM32 ROM DFU does not
+expose the BUSY Bar hardware revision. After flashing, it sends an explicit DfuSe leave command. Some devices may still need a manual reboot:
+hold Start and Back for about 3 seconds, then release and wait for the device to boot.
+
+### `busybar report`
+
+Collect a diagnostic archive from the device.
+
+    busybar report [-o report.zip] [--with-logs | --no-logs] [--screens | --no-screens]
+                   [--cli | --no-cli] [-d DEVICE] [-p PORT] [--http-port PORT]
+
+The archive includes `SUMMARY.md`, `summary.json`, HTTP API status snapshots, raw and PNG display
+frames, read-only CLI diagnostics, U5/917 `top` runtime snapshots, heap/free output, command help, and
+logs when the firmware exposes `POST /api/log_dump`. `SUMMARY.md` highlights failed collectors,
+non-OK update state, weak/disconnected Wi-Fi, low battery, and log errors/warnings. Full logs stay in
+`logs/dump.log`, with `logs/errors.txt` and `logs/warnings.txt` added when matching lines are found.
+If log collection or the 917 CLI is unavailable on older firmware, the command records the failure in
+`manifest.json` and still produces the report. Known sensitive fields (tokens, keys, passwords,
+pairing codes, SSIDs, and similar values) are redacted from JSON snapshots, CLI output, logs, and
+summaries.
+
 ### `busybar storage`
 
-Run the embedded storage.py tool on the device; pass its sub-command after `--`.
+Run storage operations through the built-in sub-command group.
 
-- `busybar storage -- list /ext`
-- `busybar storage -- send ./local.bin /ext/local.bin`
+- `busybar storage list /ext`
+- `busybar storage send ./local.bin /ext/local.bin`
 
 Sub-commands: `mkdir`, `format_ext`, `remove`, `read`, `size`, `receive`, `send`, `list`.
 
@@ -157,6 +217,16 @@ Install firmware already staged on the device (no download/upload).
 - `device_path` — on-device path to install from, or the literal `recovery` for the recovery
   partition (default: the staged update dir).
 
+### `busybar factory-reset`
+
+Factory reset the device over CLI. The command enables debug CLI commands, invokes `factory_reset`,
+confirms the device prompt, and waits for the reboot unless disabled.
+
+    busybar factory-reset [-d DEVICE] [-p PORT] [--shipping-mode] [--no-wait-after]
+
+- `--shipping-mode`, `-s` - invoke `factory_reset -s`, so the device enters shipping mode after reset.
+- `--no-wait-after` - return after confirmation without waiting for the device to reboot and come back.
+
 ### `busybar wait` / `busybar clean`
 
 - `busybar wait` — wait until the device is reachable (useful for scripting).
@@ -164,35 +234,24 @@ Install firmware already staged on the device (no download/upload).
 
 ## Shell completion (optional)
 
-`busybar` can tab-complete commands and options in **bash** and **zsh** via
-[argcomplete](https://pypi.org/project/argcomplete/). It is opt-in: you install the extra once and
-add one line to your shell startup file.
+`busybar` can tab-complete commands and options through
+[Typer](https://typer.tiangolo.com/). It is built into the CLI; install completion once for your shell.
 
-**1. Install with the `completion` extra:**
+**Install completion:**
 
-    pipx install "busybar-tools[completion]"          # fresh install
-    pipx inject busybar-tools argcomplete              # if already installed via pipx
+    busybar --install-completion bash
+    busybar --install-completion zsh
+    busybar --install-completion fish
+    busybar --install-completion powershell
 
-(For a plain pip environment: `pip install "busybar-tools[completion]"`.)
-
-**2. Enable completion in your shell** — add the matching line to your shell startup file so it
-runs in every new session:
-
-    # bash — add to ~/.bashrc
-    eval "$(register-python-argcomplete busybar)"
-
-    # zsh — add to ~/.zshrc
-    autoload -Uz bashcompinit && bashcompinit
-    eval "$(register-python-argcomplete busybar)"
-
-Open a new terminal (or `source` the file), then type `busybar <TAB>`.
-
-> If you use several argcomplete-enabled tools, you can instead enable completion globally once with
-> `activate-global-python-argcomplete` and skip the per-command `eval` line.
+Open a new terminal, then type `busybar <TAB>`. Use `busybar --show-completion SHELL` to inspect
+the generated completion script without installing it.
 
 ## Development and Testing
 
-Editable install: `pip install -e .` from the project root (use a virtual environment).
+Editable install: `pip install -e .` from the project root (use Python 3.10+ in a virtual environment).
+For development tools use `pip install -e ".[dev]"`. The package boundaries and dependency rules are
+documented in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 Run tests (`pip install -e ".[test]"`). Offline tests always run first, then live ones:
 - `pytest` — the offline test suite.
@@ -218,13 +277,18 @@ To run a subset (e.g. while iterating, to avoid the full flash run) use the stan
 
 ## Upcoming features plan
 - Easy recovery of Busybar via DFU from any possible broken state
-- Factory reset?
 - ...create an [issue](https://github.com/lomalkin/busybar-tools/issues) for any feature requests or bug reports!
 
 
 ## Upcoming
-- Optional shell tab-completion for bash/zsh via [argcomplete](https://pypi.org/project/argcomplete/).
-  Install the extra (`busybar-tools[completion]`) and register it in your shell — see
+- Recovery now refuses ambiguous STM32 DFU devices, validates the DfuSe image and flash range, asks
+  for a typed target confirmation, and enforces detection/write deadlines. `--yes` is available for
+  explicit automation.
+- Root help, parser errors, and completion are generated by Typer instead of a parallel handwritten
+  command list. Runtime dependencies are bounded and the actual minimum Python version is 3.10.
+- Storage protocol/tree transfer code and storage firmware workflows are consolidated into their
+  cohesive modules; the two pass-through storage modules were removed.
+- Optional shell tab-completion through Typer's built-in completion support. Install it for your shell — see
   [Shell completion](#shell-completion-optional).
 
 ## 0.8.0
@@ -233,8 +297,8 @@ To run a subset (e.g. while iterating, to avoid the full flash run) use the stan
   update bundle, installs it, and reports the version change. Accepts only an update-server tag/branch/URL.
   Supports `--via-storage`/`--via-http`, `--no-wait` (skip the pre-check) and `--no-wait-after`
   (skip waiting for the reboot afterwards).
-- `install` / `fetch` / `write-recovery` now **require an explicit `source`** (the `dev` default was
-  removed; it now lives in `auto-install`).
+- `install` / `fetch` / `write-recovery` now **require an explicit `source`** (the old default was
+  removed; the user-friendly default lives in `auto-install`).
 - `-t/--target` is no longer restricted to a fixed list — it accepts any integer target supported by
   the update server (default still `22`).
 - `busybar cli` can now run commands non-interactively: from arguments (`cli -- device_info`) or from
@@ -251,7 +315,7 @@ To run a subset (e.g. while iterating, to avoid the full flash run) use the stan
       (defaults to `--bkp`); the `install --save-as-recovery` / `--install` / `--confirm-timeout` options are removed.
     - `--recovery-timeout` is renamed to `--confirm-timeout`.
     - Invalid combinations now fail with a clear error (e.g. `--via-http` with `--no-install`).
-    - `busybar storage` now selects the device consistently via `-d`/`-p` (pass storage sub-commands after `--`).
+    - `busybar storage` now selects the device consistently via `-d`/`-p`.
     - Added `--no-wait` to skip the device reachability (ping) check on device-facing commands (except `wait`).
     - `write-recovery` logs a warning when used with `--update` instead of `--bkp` (the intended bundle type for recovery).
 

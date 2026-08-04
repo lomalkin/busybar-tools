@@ -8,9 +8,10 @@ except Exception:
     PACKAGE_VERSION = "unknown"
 
 # Network:
-# UPDATE_SERVER_BASE = "https://update.flipperzero.one/builds/busybar-firmware/"
 UPDATE_SERVER_BASE = "https://update.busy.app/builds/busybar-firmware/"
 UPDATE_DEFAULT_BRANCH = "dev"
+UPDATE_DEFAULT_SOURCE = "release"
+UPDATE_DIRECTORY_URL = "https://update.busy.app/busybar-firmware/directory.json"
 
 FETCH_TIMEOUT_DEFAULT = 60  # seconds
 TCP_TIMEOUT_DEFAULT = 5  # seconds
@@ -21,7 +22,7 @@ HTTP_USER_AGENT = f"busybar-tools/{PACKAGE_VERSION}"
 
 # Device:
 DEVICE_IP = "10.0.4.20"
-DEVICE_IP_REF = "10.0.5.20" # misc
+DEVICE_IP_REF = "10.0.5.20"
 DEVICE_PORT = 23
 
 # Firmware U5 target:
