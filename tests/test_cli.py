@@ -92,4 +92,50 @@ def test_command_registration_order(monkeypatch, capsys):
     with pytest.raises(SystemExit):
         run_cli(monkeypatch, ["--help"])
     out = capsys.readouterr().out
-    assert "{auto-install,cli,storage,install,fetch,write-recovery,install-onboard,wait,clean}" in out
+    assert "{auto-install,cli,storage,install,fetch,write-recovery,install-onboard,recover,factory-reset,wait,clean}" in out
+
+
+def _capture_args(monkeypatch, run_name, argv):
+    """Parse `argv` and return the args namespace passed to the mocked run_* function."""
+    captured = {}
+
+    def fake(args):
+        captured["args"] = args
+        return 0
+
+    monkeypatch.setattr(cli, run_name, fake)
+    assert run_cli(monkeypatch, argv) == 0
+    return captured["args"]
+
+
+def test_recover_defaults(monkeypatch):
+    from busybar_tools.config import RECOVERY_SOURCE_DEFAULT
+
+    args = _capture_args(monkeypatch, "run_recover", ["recover"])
+    assert args.source == RECOVERY_SOURCE_DEFAULT
+    assert args.target == "auto"
+    assert args.file is None
+    assert args.backend == "pyusb"
+    assert args.install_dfu_tool is False
+    assert args.manual_dfu is False
+    assert args.dfu_timeout == 30
+    assert args.wait_timeout == 120
+    assert args.confirm_timeout == 3
+
+
+def test_recover_rejects_unknown_backend(monkeypatch):
+    with pytest.raises(SystemExit) as exc:
+        run_cli(monkeypatch, ["recover", "--backend", "bogus"])
+    assert exc.value.code == 2
+
+
+def test_factory_reset_defaults(monkeypatch):
+    args = _capture_args(monkeypatch, "run_factory_reset", ["factory-reset"])
+    assert args.shipping_mode is False
+    assert args.offline_timeout == 180
+    assert args.confirm_timeout == 3
+
+
+def test_factory_reset_shipping_mode_flag(monkeypatch):
+    args = _capture_args(monkeypatch, "run_factory_reset", ["factory-reset", "-s"])
+    assert args.shipping_mode is True
